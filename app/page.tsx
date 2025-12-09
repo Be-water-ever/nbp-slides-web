@@ -7,13 +7,29 @@ import Step2Generate from "@/components/steps/Step2Generate";
 import Step3Enlarge from "@/components/steps/Step3Enlarge";
 import Step4Present from "@/components/steps/Step4Present";
 
+// Text block from OCR
+export interface TextBlock {
+  content: string;
+  x_percent: number;
+  y_percent: number;
+  width_percent: number;
+  size: "large" | "medium" | "small" | "tiny";
+  align: "left" | "center" | "right";
+  color: string;
+}
+
 // Application state type
 export interface AppState {
   apiKey: string;
   outline: string;
   visualGuideline: string;
   uploadedAssets: { name: string; path: string }[];
-  generatedSlides: { number: number; path: string; enlarged?: string }[];
+  generatedSlides: { 
+    number: number; 
+    path: string; 
+    enlarged?: string;
+    textBlocks?: TextBlock[]; // OCR-extracted text for editing
+  }[];
   currentJobId: string | null;
 }
 

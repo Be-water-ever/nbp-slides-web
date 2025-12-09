@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { AppState } from "@/app/page";
+import { AppState, TextBlock } from "@/app/page";
 import { 
   ArrowLeftIcon, 
   ArrowRightIcon, 
@@ -18,6 +18,11 @@ interface Step2GenerateProps {
   onPrev: () => void;
 }
 
+interface SlideData {
+  path: string;
+  textBlocks: TextBlock[];
+}
+
 interface JobStatus {
   id: string;
   status: "pending" | "processing" | "completed" | "failed";
@@ -25,6 +30,7 @@ interface JobStatus {
   totalSlides: number;
   completedSlides: number;
   slides: string[];
+  slideData?: SlideData[];
   error?: string;
 }
 
@@ -62,12 +68,13 @@ export default function Step2Generate({
       const status: JobStatus = await response.json();
       setJobStatus(status);
 
-      // Update app state with generated slides
+      // Update app state with generated slides (including text blocks from OCR)
       if (status.slides.length > 0) {
         updateState({
           generatedSlides: status.slides.map((path, index) => ({
             number: index + 1,
             path,
+            textBlocks: status.slideData?.[index]?.textBlocks || [],
           })),
         });
       }

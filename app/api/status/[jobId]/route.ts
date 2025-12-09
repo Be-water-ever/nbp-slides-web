@@ -30,6 +30,7 @@ export async function GET(
     totalSlides: job.totalSlides,
     completedSlides: job.completedSlides,
     slides: job.slides,
+    slideData: job.slideData || [],
     error: job.error,
   });
 }

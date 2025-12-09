@@ -1,13 +1,29 @@
 // In-memory job store for tracking generation tasks
 // In production, use Redis or a database
 
+export interface TextBlock {
+  content: string;
+  x_percent: number;
+  y_percent: number;
+  width_percent: number;
+  size: "large" | "medium" | "small" | "tiny";
+  align: "left" | "center" | "right";
+  color: string;
+}
+
+export interface SlideData {
+  path: string; // Image URL
+  textBlocks: TextBlock[]; // Extracted text for editing
+}
+
 export interface Job {
   id: string;
   status: "pending" | "processing" | "completed" | "failed";
   progress: number; // 0-100
   totalSlides: number;
   completedSlides: number;
-  slides: string[]; // Array of generated slide image paths
+  slides: string[]; // Array of generated slide image paths (backward compat)
+  slideData: SlideData[]; // New: slides with text blocks
   error?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -37,6 +53,7 @@ export function createJob(totalSlides: number): Job {
     totalSlides,
     completedSlides: 0,
     slides: [],
+    slideData: [],
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -65,7 +82,11 @@ export function deleteJob(id: string): boolean {
   return jobs.delete(id);
 }
 
-export function addSlideToJob(id: string, slidePath: string): Job | undefined {
+export function addSlideToJob(
+  id: string, 
+  slidePath: string, 
+  textBlocks: TextBlock[] = []
+): Job | undefined {
   const job = jobs.get(id);
   if (!job) return undefined;
   
@@ -74,6 +95,7 @@ export function addSlideToJob(id: string, slidePath: string): Job | undefined {
   
   return updateJob(id, {
     slides: [...job.slides, slidePath],
+    slideData: [...(job.slideData || []), { path: slidePath, textBlocks }],
     completedSlides,
     progress,
     status: completedSlides >= job.totalSlides ? "completed" : "processing",

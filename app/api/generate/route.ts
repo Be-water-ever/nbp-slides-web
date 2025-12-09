@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createJob, updateJob, addSlideToJob, getJob } from "@/lib/job-store";
+import { createJob, updateJob, addSlideToJob, getJob, TextBlock } from "@/lib/job-store";
 import { parseOutline } from "@/lib/parse-outline";
 
 // API URL for the Python backend (Railway)
@@ -110,7 +110,28 @@ Make it look like a professional slide from a Keynote presentation.
       const result = await response.json();
 
       if (result.success && result.image_url) {
-        addSlideToJob(jobId, result.image_url);
+        // Now extract text using OCR
+        let textBlocks: TextBlock[] = [];
+        try {
+          console.log(`[Job ${jobId}] Running OCR on slide ${slide.number}...`);
+          const ocrResponse = await fetch(`${API_BASE_URL}/ocr`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              api_key: apiKey,
+              image_url: result.image_url,
+            }),
+          });
+          const ocrResult = await ocrResponse.json();
+          if (ocrResult.success && ocrResult.text_blocks) {
+            textBlocks = ocrResult.text_blocks;
+            console.log(`[Job ${jobId}] OCR found ${textBlocks.length} text blocks`);
+          }
+        } catch (ocrError) {
+          console.error(`[Job ${jobId}] OCR failed (non-fatal):`, ocrError);
+        }
+        
+        addSlideToJob(jobId, result.image_url, textBlocks);
         console.log(`[Job ${jobId}] Slide ${slide.number} generated: ${result.image_url}`);
         successCount++;
       } else {
