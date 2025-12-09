@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { AppState, TextBlock } from "@/app/page";
 import { 
   ArrowLeftIcon, 
@@ -9,7 +9,7 @@ import {
   SparklesIcon,
   RefreshIcon 
 } from "@/components/icons";
-import { getSlideCount } from "@/lib/parse-outline";
+import { parseOutline, getSlideCount } from "@/lib/parse-outline";
 
 interface Step2GenerateProps {
   appState: AppState;
@@ -18,19 +18,17 @@ interface Step2GenerateProps {
   onPrev: () => void;
 }
 
-interface SlideData {
+interface GeneratedSlide {
+  number: number;
   path: string;
-  textBlocks: TextBlock[];
+  textBlocks?: TextBlock[];
 }
 
-interface JobStatus {
-  id: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  progress: number;
+interface GenerationProgress {
   totalSlides: number;
   completedSlides: number;
-  slides: string[];
-  slideData?: SlideData[];
+  currentSlideTitle: string;
+  status: "idle" | "generating" | "completed" | "failed";
   error?: string;
 }
 
@@ -40,125 +38,146 @@ export default function Step2Generate({
   onNext, 
   onPrev 
 }: Step2GenerateProps) {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const [progress, setProgress] = useState<GenerationProgress>({
+    totalSlides: getSlideCount(appState.outline),
+    completedSlides: 0,
+    currentSlideTitle: "",
+    status: "idle",
+  });
+  const [generatedSlides, setGeneratedSlides] = useState<GeneratedSlide[]>(
+    appState.generatedSlides || []
+  );
+  const abortRef = useRef(false);
 
   const totalSlides = getSlideCount(appState.outline);
 
-  // Poll for job status
-  const pollJobStatus = useCallback(async (jobId: string) => {
-    try {
-      const response = await fetch(`/api/status/${jobId}`);
-      if (!response.ok) {
-        // Job not found - might be due to server restart, stop polling
-        if (response.status === 404) {
-          console.warn("Job not found, stopping polling");
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
-          }
-          setIsGenerating(false);
-          setError("任务状态丢失（可能由于服务器重启）。请重新开始生成。");
-          return;
-        }
-        throw new Error("Failed to fetch job status");
-      }
-      const status: JobStatus = await response.json();
-      setJobStatus(status);
-
-      // Update app state with generated slides (including text blocks from OCR)
-      if (status.slides.length > 0) {
-        updateState({
-          generatedSlides: status.slides.map((path, index) => ({
-            number: index + 1,
-            path,
-            textBlocks: status.slideData?.[index]?.textBlocks || [],
-          })),
-        });
-      }
-
-      // Stop polling if completed or failed
-      if (status.status === "completed" || status.status === "failed") {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-        setIsGenerating(false);
-      }
-    } catch (err) {
-      console.error("Error polling job status:", err);
-    }
-  }, [updateState]);
-
-  // Start generation
+  // Generate slides one by one
   const startGeneration = useCallback(async () => {
-    setIsGenerating(true);
-    setError(null);
-    setJobStatus(null);
+    abortRef.current = false;
+    setProgress(prev => ({ 
+      ...prev, 
+      status: "generating", 
+      error: undefined,
+      completedSlides: 0,
+    }));
+    setGeneratedSlides([]);
 
-    try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: appState.apiKey,
-          outline: appState.outline,
-          visualGuideline: appState.visualGuideline,
-        }),
-      });
+    // Parse outline to get individual slides
+    const slides = parseOutline(appState.outline, 1, 99);
+    setProgress(prev => ({ ...prev, totalSlides: slides.length }));
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to start generation");
+    const newSlides: GeneratedSlide[] = [];
+
+    for (let i = 0; i < slides.length; i++) {
+      if (abortRef.current) {
+        setProgress(prev => ({ ...prev, status: "idle" }));
+        return;
       }
 
-      const { jobId, totalSlides: total } = await response.json();
-      updateState({ currentJobId: jobId });
-      
-      setJobStatus({
-        id: jobId,
-        status: "processing",
-        progress: 0,
-        totalSlides: total,
-        completedSlides: 0,
-        slides: [],
-      });
+      const slide = slides[i];
+      setProgress(prev => ({ 
+        ...prev, 
+        currentSlideTitle: slide.title || `幻灯片 ${i + 1}`,
+      }));
 
-      // Start polling
-      pollingRef.current = setInterval(() => {
-        pollJobStatus(jobId);
-      }, 2000);
+      try {
+        // Build prompt for this slide
+        const prompt = `
+You are an expert presentation designer for a high-end tech keynote.
 
-    } catch (err) {
-      setIsGenerating(false);
-      setError(err instanceof Error ? err.message : "Unknown error");
+VISUAL GUIDELINES (MUST FOLLOW):
+${appState.visualGuideline}
+
+SLIDE CONTENT:
+${slide.content}
+
+TASK:
+Generate a high-resolution, 16:9 slide image that perfectly represents the content above while strictly adhering to the visual guidelines.
+The image should be the final slide itself, including any text or graphical elements described.
+Make it look like a professional slide from a Keynote presentation.
+${slide.assetPaths && slide.assetPaths.length > 0 ? `
+
+**CRITICAL INSTRUCTION FOR PROVIDED IMAGES**:
+I have attached ${slide.assetPaths.length} image(s) that MUST be embedded directly into this slide.
+- DO NOT recreate, redraw, or re-interpret these images
+- Place them EXACTLY as they are provided
+- These are functional assets (logos, QR codes, product photos) that must appear pixel-perfect
+- Integrate them naturally into the slide layout at appropriate positions` : ""}
+        `.trim();
+
+        // Filter asset paths to only include URLs
+        const assetUrls = slide.assetPaths?.filter((p: string) => p.startsWith("http")) || [];
+
+        // Call the single slide generation API
+        const response = await fetch("/api/generate-single", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apiKey: appState.apiKey,
+            prompt,
+            assetUrls,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.image_url) {
+          const newSlide: GeneratedSlide = {
+            number: slide.number,
+            path: result.image_url,
+            textBlocks: result.text_blocks || [],
+          };
+          newSlides.push(newSlide);
+          setGeneratedSlides([...newSlides]);
+          
+          setProgress(prev => ({
+            ...prev,
+            completedSlides: prev.completedSlides + 1,
+          }));
+        } else {
+          // Slide failed but continue with others
+          console.error(`Slide ${slide.number} failed:`, result.error);
+          setProgress(prev => ({
+            ...prev,
+            completedSlides: prev.completedSlides + 1,
+            error: `第 ${slide.number} 页生成失败: ${result.error}`,
+          }));
+        }
+      } catch (err) {
+        console.error(`Error generating slide ${slide.number}:`, err);
+        setProgress(prev => ({
+          ...prev,
+          completedSlides: prev.completedSlides + 1,
+          error: `第 ${slide.number} 页生成失败: ${err instanceof Error ? err.message : "网络错误"}`,
+        }));
+      }
     }
-  }, [appState.apiKey, appState.outline, appState.visualGuideline, updateState, pollJobStatus]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
+    // All done
+    setProgress(prev => ({ 
+      ...prev, 
+      status: newSlides.length > 0 ? "completed" : "failed",
+      currentSlideTitle: "",
+    }));
+
+    // Update app state with all generated slides
+    if (newSlides.length > 0) {
+      updateState({ generatedSlides: newSlides });
+    }
+  }, [appState.apiKey, appState.outline, appState.visualGuideline, updateState]);
+
+  const cancelGeneration = useCallback(() => {
+    abortRef.current = true;
   }, []);
 
-  // Auto-start if coming back to this step with a pending job
-  useEffect(() => {
-    if (appState.currentJobId && !jobStatus && !isGenerating) {
-      pollJobStatus(appState.currentJobId);
-      pollingRef.current = setInterval(() => {
-        pollJobStatus(appState.currentJobId!);
-      }, 2000);
-    }
-  }, [appState.currentJobId, jobStatus, isGenerating, pollJobStatus]);
+  const progressPercent = progress.totalSlides > 0 
+    ? Math.round((progress.completedSlides / progress.totalSlides) * 100)
+    : 0;
 
-  const isComplete = jobStatus?.status === "completed";
-  const isFailed = jobStatus?.status === "failed";
-  const canProceed = isComplete && appState.generatedSlides.length > 0;
+  const isGenerating = progress.status === "generating";
+  const isComplete = progress.status === "completed";
+  const isFailed = progress.status === "failed";
+  const canProceed = isComplete && generatedSlides.length > 0;
 
   return (
     <div className="h-full flex flex-col">
@@ -167,12 +186,12 @@ export default function Step2Generate({
         <h2 className="text-2xl font-semibold mb-2">生成幻灯片</h2>
         <p className="text-white/60">
           {isGenerating 
-            ? "正在使用 Gemini AI 生成你的幻灯片..." 
+            ? `正在生成: ${progress.currentSlideTitle || "准备中..."}` 
             : isFailed
               ? "生成失败，请检查错误信息并重试"
-              : isComplete && appState.generatedSlides.length > 0
-                ? "生成完成！查看预览并继续下一步"
-                : isComplete && appState.generatedSlides.length === 0
+              : isComplete && generatedSlides.length > 0
+                ? `成功生成 ${generatedSlides.length} 页幻灯片！`
+                : isComplete && generatedSlides.length === 0
                   ? "生成完成但没有幻灯片，请检查配置"
                   : `准备生成 ${totalSlides} 页幻灯片`}
         </p>
@@ -181,49 +200,49 @@ export default function Step2Generate({
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
         {/* Progress Section */}
-        {(isGenerating || jobStatus) && (
+        {(isGenerating || progress.completedSlides > 0) && (
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium">
-                {jobStatus?.completedSlides || 0} / {jobStatus?.totalSlides || totalSlides} 页
+                {progress.completedSlides} / {progress.totalSlides} 页
               </span>
               <span className="text-sm text-white/60">
-                {jobStatus?.progress || 0}%
+                {progressPercent}%
               </span>
             </div>
             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className="h-full accent-gradient transition-all duration-500 ease-out"
-                style={{ width: `${jobStatus?.progress || 0}%` }}
+                style={{ width: `${progressPercent}%` }}
               />
             </div>
           </div>
         )}
 
         {/* Error Display */}
-        {(error || isFailed) && (
+        {progress.error && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <p className="text-red-400 text-sm font-medium mb-1">生成失败</p>
+            <p className="text-red-400 text-sm font-medium mb-1">生成遇到问题</p>
             <p className="text-red-400/80 text-sm whitespace-pre-wrap">
               {(() => {
-                const errMsg = error || jobStatus?.error || "";
+                const errMsg = progress.error;
                 if (errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota")) {
                   return "API 配额已用尽。请稍后重试，或者检查你的 Google Cloud 账单和配额设置。\n\n提示：免费版 Gemini API 有每日请求限制。";
                 }
                 if (errMsg.includes("401") || errMsg.includes("UNAUTHENTICATED")) {
                   return "API Key 无效或已过期。请检查你的 API Key 是否正确。";
                 }
-                return errMsg || "未知错误，请检查 API Key 是否正确，以及 Python 环境是否配置正确";
+                return errMsg;
               })()}
             </p>
           </div>
         )}
 
         {/* Slides Preview Grid */}
-        {appState.generatedSlides.length > 0 ? (
+        {generatedSlides.length > 0 ? (
           <div className="flex-1 overflow-auto">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {appState.generatedSlides.map((slide) => (
+              {generatedSlides.map((slide) => (
                 <div 
                   key={slide.number}
                   className="aspect-video bg-white/5 rounded-xl overflow-hidden relative group"
@@ -234,20 +253,22 @@ export default function Step2Generate({
                     alt={`Slide ${slide.number}`}
                     className="w-full h-full object-cover"
                     onError={(e) => {
-                      // Handle image load error
                       (e.target as HTMLImageElement).style.display = "none";
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                   <span className="absolute bottom-2 left-2 text-xs bg-black/50 px-2 py-1 rounded">
                     {slide.number}
+                    {slide.textBlocks && slide.textBlocks.length > 0 && (
+                      <span className="ml-1 text-accent-blue">✏️</span>
+                    )}
                   </span>
                 </div>
               ))}
               
               {/* Placeholder for slides being generated */}
               {isGenerating && Array.from({ 
-                length: (jobStatus?.totalSlides || totalSlides) - appState.generatedSlides.length 
+                length: progress.totalSlides - generatedSlides.length 
               }).map((_, i) => (
                 <div 
                   key={`placeholder-${i}`}
@@ -281,7 +302,13 @@ export default function Step2Generate({
           <div className="flex-1 flex items-center justify-center">
             <div className="flex flex-col items-center gap-4">
               <LoadingSpinner className="w-16 h-16 text-accent-blue" />
-              <p className="text-white/60">正在生成中...</p>
+              <p className="text-white/60">正在生成: {progress.currentSlideTitle}</p>
+              <button
+                onClick={cancelGeneration}
+                className="text-sm text-white/40 hover:text-white/60"
+              >
+                取消
+              </button>
             </div>
           </div>
         )}
@@ -299,7 +326,7 @@ export default function Step2Generate({
         </button>
 
         <div className="flex gap-3">
-          {(error || isFailed) && (
+          {(progress.error || isFailed || (isComplete && generatedSlides.length === 0)) && (
             <button
               onClick={startGeneration}
               className="btn-secondary flex items-center gap-2"
@@ -321,4 +348,3 @@ export default function Step2Generate({
     </div>
   );
 }
-
