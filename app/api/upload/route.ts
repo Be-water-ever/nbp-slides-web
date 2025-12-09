@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
 
+// Increase body size limit to 50MB for image uploads
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "50mb",
+    },
+  },
+};
+
+// Route segment config for App Router
+export const maxDuration = 60;
+
 // R2 Configuration from environment variables
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
