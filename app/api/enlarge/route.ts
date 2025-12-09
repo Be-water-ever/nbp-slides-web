@@ -1,77 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
-import { enlargeSlideImage, validateApiKey } from "@/lib/python-bridge";
-import path from "path";
-import fs from "fs/promises";
+
+// API URL for the Python backend (Railway)
+const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { apiKey, slidePath, jobId } = body;
+    const { apiKey, imageUrl } = body;
 
-    // Validate API key format
-    if (!apiKey || !(await validateApiKey(apiKey))) {
+    if (!apiKey || apiKey.length < 20) {
       return NextResponse.json(
         { error: "Invalid API key" },
         { status: 400 }
       );
     }
 
-    if (!slidePath || !jobId) {
+    if (!imageUrl) {
       return NextResponse.json(
-        { error: "slidePath and jobId are required" },
+        { error: "Image URL is required" },
         { status: 400 }
       );
     }
 
-    // Convert public path to actual file path
-    const inputPath = path.join(process.cwd(), "public", slidePath);
-    
-    // Check if input file exists
-    try {
-      await fs.access(inputPath);
-    } catch {
-      return NextResponse.json(
-        { error: "Slide image not found" },
-        { status: 404 }
-      );
-    }
+    // Call the remote Python backend
+    const response = await fetch(`${API_BASE_URL}/enlarge`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        image_url: imageUrl,
+      }),
+    });
 
-    // Generate output path for 4K version
-    const outputFileName = path.basename(slidePath).replace("_0.jpg", "_4k.jpg");
-    const outputDir = path.join(process.cwd(), "public", "generated", jobId);
-    const outputPath = path.join(outputDir, outputFileName);
+    const result = await response.json();
 
-    // Ensure output directory exists
-    await fs.mkdir(outputDir, { recursive: true });
-
-    // Call the Python enlarge script
-    const result = await enlargeSlideImage(
-      inputPath,
-      outputPath,
-      apiKey,
-      (line) => {
-        console.log(`[Enlarge] ${line}`);
-      }
-    );
-
-    if (result.success) {
-      const publicPath = `/generated/${jobId}/${outputFileName}`;
+    if (result.success && result.image_url) {
       return NextResponse.json({
         success: true,
-        enlargedPath: publicPath,
+        enlargedPath: result.image_url,
       });
     } else {
       return NextResponse.json(
-        { error: result.stderr || "Enlargement failed" },
+        { error: result.error || "Enlargement failed" },
         { status: 500 }
       );
     }
   } catch (error) {
     console.error("Enlarge API error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error instanceof Error ? error.message : "Internal server error" },
       { status: 500 }
     );
   }
 }
-

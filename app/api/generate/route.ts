@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createJob, updateJob, addSlideToJob, getJob } from "@/lib/job-store";
 import { parseOutline } from "@/lib/parse-outline";
-import { generateSlideImage, validateApiKey } from "@/lib/python-bridge";
-import path from "path";
-import fs from "fs/promises";
 
-// Store active generation promises to prevent premature termination
-const activeGenerations = new Map<string, Promise<void>>();
+// API URL for the Python backend (Railway)
+const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { apiKey, outline, visualGuideline, specificSlides } = body;
 
-    // Validate API key format
-    if (!apiKey || !(await validateApiKey(apiKey))) {
+    if (!apiKey || apiKey.length < 20) {
       return NextResponse.json(
         { error: "Invalid API key" },
         { status: 400 }
@@ -35,18 +31,8 @@ export async function POST(request: NextRequest) {
     const job = createJob(slides.length);
     updateJob(job.id, { status: "processing" });
 
-    // Ensure output directory exists
-    const outputDir = path.join(process.cwd(), "public", "generated", job.id);
-    await fs.mkdir(outputDir, { recursive: true });
-
-    // Start generation and store the promise
-    const generationPromise = generateSlidesInBackground(job.id, slides, visualGuideline, apiKey, outputDir);
-    activeGenerations.set(job.id, generationPromise);
-    
-    // Clean up when done
-    generationPromise.finally(() => {
-      activeGenerations.delete(job.id);
-    });
+    // Start generation in background
+    generateSlidesInBackground(job.id, slides, visualGuideline, apiKey);
 
     return NextResponse.json({
       jobId: job.id,
@@ -73,11 +59,9 @@ async function generateSlidesInBackground(
   jobId: string,
   slides: ParsedSlide[],
   visualGuideline: string,
-  apiKey: string,
-  outputDir: string
+  apiKey: string
 ) {
   console.log(`[Job ${jobId}] Starting generation of ${slides.length} slides...`);
-  console.log(`[Job ${jobId}] Output directory: ${outputDir}`);
   
   let successCount = 0;
   const errors: string[] = [];
@@ -107,70 +91,35 @@ Make it look like a professional slide from a Keynote presentation.
         prompt += `\n\nNOTE: Reference images have been provided. Incorporate these images into the design as described in the slide content. Use them for style reference, material textures, or embed them directly as specified.`;
       }
 
-      const outputPrefix = path.join(outputDir, `slide_${String(slide.number).padStart(2, "0")}`);
+      // Call the remote Python backend
+      const response = await fetch(`${API_BASE_URL}/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          api_key: apiKey,
+          prompt: prompt,
+          aspect_ratio: "16:9",
+          asset_urls: slide.assetPaths && slide.assetPaths.length > 0 
+            ? slide.assetPaths.filter(p => p.startsWith("http")) 
+            : undefined,
+        }),
+      });
 
-      // Resolve asset paths relative to nbp_slides project
-      const nbpSlidesPath = path.resolve(process.cwd(), process.env.NBP_SLIDES_PATH || "../nbp_slides");
-      const resolvedAssetPaths: string[] = [];
-      
-      if (slide.assetPaths && slide.assetPaths.length > 0) {
-        for (const assetPath of slide.assetPaths) {
-          const fullAssetPath = path.resolve(nbpSlidesPath, assetPath);
-          try {
-            await fs.access(fullAssetPath);
-            resolvedAssetPaths.push(fullAssetPath);
-            console.log(`[Job ${jobId}] Using asset: ${fullAssetPath}`);
-          } catch {
-            console.warn(`[Job ${jobId}] Asset not found: ${fullAssetPath}`);
-          }
-        }
-      }
+      const result = await response.json();
 
-      // Call the Python script with asset paths
-      const result = await generateSlideImage(
-        prompt,
-        outputPrefix,
-        apiKey,
-        resolvedAssetPaths.length > 0 ? resolvedAssetPaths : undefined,
-        (line) => {
-          console.log(`[Slide ${slide.number}] ${line}`);
-        }
-      );
-
-      if (result.success) {
-        // Check for both .jpg and .png extensions
-        const possibleExtensions = ['.jpg', '.jpeg', '.png'];
-        let foundFile = false;
-        
-        for (const ext of possibleExtensions) {
-          const generatedFile = `slide_${String(slide.number).padStart(2, "0")}_0${ext}`;
-          const fullPath = path.join(outputDir, generatedFile);
-          
-          try {
-            await fs.access(fullPath);
-            const publicPath = `/generated/${jobId}/${generatedFile}`;
-            addSlideToJob(jobId, publicPath);
-            console.log(`[Job ${jobId}] Slide ${slide.number} generated: ${publicPath}`);
-            successCount++;
-            foundFile = true;
-            break;
-          } catch {
-            // File doesn't exist with this extension, try next
-          }
-        }
-        
-        if (!foundFile) {
-          const errorMsg = `Slide ${slide.number}: Generated but output file not found`;
-          console.error(`[Job ${jobId}] ${errorMsg}`);
-          errors.push(errorMsg);
-        }
+      if (result.success && result.image_url) {
+        addSlideToJob(jobId, result.image_url);
+        console.log(`[Job ${jobId}] Slide ${slide.number} generated: ${result.image_url}`);
+        successCount++;
       } else {
-        const errorMsg = `Slide ${slide.number}: ${result.stderr || 'Unknown error'}`;
-        console.error(`[Job ${jobId}] Failed to generate slide ${slide.number}:`, result.stderr);
+        const errorMsg = `Slide ${slide.number}: ${result.error || 'Unknown error'}`;
+        console.error(`[Job ${jobId}] ${errorMsg}`);
         errors.push(errorMsg);
       }
     } catch (error) {
-      const errorMsg = `Slide ${slide.number}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      const errorMsg = `Slide ${slide.number}: ${error instanceof Error ? error.message : 'Network error'}`;
       console.error(`[Job ${jobId}] Error generating slide ${slide.number}:`, error);
       errors.push(errorMsg);
     }
@@ -186,10 +135,8 @@ Make it look like a professional slide from a Keynote presentation.
       });
       console.log(`[Job ${jobId}] Failed - no slides generated`);
     } else {
-      // Don't override progress - let it be calculated from completedSlides
       updateJob(jobId, { status: "completed" });
       console.log(`[Job ${jobId}] Completed - ${successCount}/${slides.length} slides generated`);
     }
   }
 }
-
