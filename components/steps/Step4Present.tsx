@@ -137,20 +137,40 @@ export default function Step4Present({
     }
   }, [nextSlide, prevSlide, exitFullscreen]);
 
-  const downloadSlide = useCallback((slide: { number: number; path: string; enlarged?: string }) => {
-    const url = slide.enlarged || slide.path;
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `slide_${slide.number}${slide.enlarged ? "_4k" : ""}.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const downloadSlide = useCallback(async (slide: { number: number; path: string; enlarged?: string }) => {
+    try {
+      const url = slide.enlarged || slide.path;
+      
+      // Fetch the image as blob to avoid CORS issues
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // Create download link
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `slide_${slide.number}${slide.enlarged ? "_4k" : ""}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up blob URL after a short delay
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+    } catch (error) {
+      console.error(`Failed to download slide ${slide.number}:`, error);
+      // Fallback: open in new tab
+      window.open(slide.enlarged || slide.path, '_blank');
+    }
   }, []);
 
   const downloadAll = useCallback(async () => {
     // Download all slides sequentially
     for (const slide of slides) {
-      downloadSlide(slide);
+      await downloadSlide(slide);
       // Small delay to prevent browser blocking
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
@@ -372,7 +392,7 @@ ${(slide.textBlocks || []).map(block => `
                   {editMode ? "编辑中" : "编辑文字"}
                 </button>
                 <button
-                  onClick={() => currentSlide && downloadSlide(currentSlide)}
+                  onClick={() => currentSlide && downloadSlide(currentSlide).catch(console.error)}
                   className="bg-black/50 p-2 rounded-lg hover:bg-black/70 transition-colors"
                   title="下载当前页"
                 >
@@ -424,7 +444,7 @@ ${(slide.textBlocks || []).map(block => `
             <h3 className="font-medium mb-3">下载</h3>
             <div className="space-y-2">
               <button
-                onClick={() => currentSlide && downloadSlide(currentSlide)}
+                onClick={() => currentSlide && downloadSlide(currentSlide).catch(console.error)}
                 className="w-full btn-secondary text-sm py-2 flex items-center justify-center gap-2"
               >
                 <DownloadIcon className="w-4 h-4" />
