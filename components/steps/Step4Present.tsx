@@ -58,7 +58,7 @@ function DraggableTextBlock({
   block: TextBlock;
   blockIndex: number;
   isSelected: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onUpdateContent: (content: string) => void;
   onUpdatePosition: (x: number, y: number) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -75,7 +75,7 @@ function DraggableTextBlock({
     if (isEditing) return;
     e.preventDefault();
     e.stopPropagation();
-    onSelect();
+    onSelect(e);
     setIsDragging(true);
     dragStartRef.current = {
       x: e.clientX,
@@ -165,18 +165,26 @@ function DraggableTextBlock({
   );
 }
 
-// Text block controls component
-function TextBlockControls({
-  block,
+// Inline text block controls (integrated into toolbar)
+function InlineTextBlockControls({
+  selectedBlocks,
   onUpdateFontSize,
   onUpdateColor,
+  onDelete,
+  onSelectAll,
+  totalBlocks,
 }: {
-  block: TextBlock;
+  selectedBlocks: TextBlock[];
   onUpdateFontSize: (size: number) => void;
   onUpdateColor: (color: string) => void;
+  onDelete: () => void;
+  onSelectAll: () => void;
+  totalBlocks: number;
 }) {
-  const currentFontSize = block.customFontSize || getFontSizePx(block.size);
-  const currentColor = block.customColor || block.color || "#333333";
+  // Get common values or show placeholder for mixed
+  const firstBlock = selectedBlocks[0];
+  const currentFontSize = firstBlock?.customFontSize || getFontSizePx(firstBlock?.size || "medium");
+  const currentColor = firstBlock?.customColor || firstBlock?.color || "#333333";
 
   const handleEyeDropper = async () => {
     if ('EyeDropper' in window) {
@@ -193,40 +201,68 @@ function TextBlockControls({
     }
   };
 
-  return (
-    <div className="flex items-center gap-4 p-3 bg-white/10 rounded-lg backdrop-blur-sm">
-      {/* Font size control */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-white/60">字号</span>
-        <input
-          type="range"
-          min="12"
-          max="72"
-          value={currentFontSize}
-          onChange={(e) => onUpdateFontSize(parseInt(e.target.value))}
-          className="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
-        />
-        <span className="text-xs text-white/80 w-8">{currentFontSize}px</span>
-      </div>
+  const hasSelection = selectedBlocks.length > 0;
 
-      {/* Color control */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-white/60">颜色</span>
-        <input
-          type="color"
-          value={currentColor}
-          onChange={(e) => onUpdateColor(e.target.value)}
-          className="w-8 h-6 rounded cursor-pointer border border-white/20"
-        />
+  return (
+    <>
+      {/* Selection info & select all */}
+      <div className="flex items-center gap-2 border-l border-white/20 pl-4">
+        <span className="text-xs text-white/60">
+          {hasSelection ? `已选 ${selectedBlocks.length}/${totalBlocks}` : `共 ${totalBlocks} 个文字块`}
+        </span>
         <button
-          onClick={handleEyeDropper}
+          onClick={onSelectAll}
           className="px-2 py-1 text-xs bg-white/10 hover:bg-white/20 rounded transition-colors"
-          title="吸色"
         >
-          🎯 吸色
+          全选
         </button>
       </div>
-    </div>
+
+      {/* Font size control - only show when selected */}
+      {hasSelection && (
+        <>
+          <div className="flex items-center gap-2 border-l border-white/20 pl-4">
+            <span className="text-xs text-white/60">字号</span>
+            <input
+              type="range"
+              min="12"
+              max="72"
+              value={currentFontSize}
+              onChange={(e) => onUpdateFontSize(parseInt(e.target.value))}
+              className="w-20 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
+            />
+            <span className="text-xs text-white/80 w-8">{currentFontSize}px</span>
+          </div>
+
+          {/* Color control */}
+          <div className="flex items-center gap-2 border-l border-white/20 pl-4">
+            <span className="text-xs text-white/60">颜色</span>
+            <input
+              type="color"
+              value={currentColor}
+              onChange={(e) => onUpdateColor(e.target.value)}
+              className="w-6 h-5 rounded cursor-pointer border border-white/20"
+            />
+            <button
+              onClick={handleEyeDropper}
+              className="px-1.5 py-0.5 text-xs bg-white/10 hover:bg-white/20 rounded transition-colors"
+              title="吸色"
+            >
+              🎯
+            </button>
+          </div>
+
+          {/* Delete button */}
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded transition-colors border-l border-white/20 ml-2"
+            title="删除选中的文字块"
+          >
+            🗑️ 删除
+          </button>
+        </>
+      )}
+    </>
   );
 }
 
@@ -238,7 +274,7 @@ export default function Step4Present({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [editMode, setEditMode] = useState(true);
-  const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null);
+  const [selectedBlockIndices, setSelectedBlockIndices] = useState<number[]>([]);
   const [localSlides, setLocalSlides] = useState(appState.generatedSlides);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<DownloadFormat>("png");
@@ -255,10 +291,10 @@ export default function Step4Present({
   // Check if current slide has editable text (cleanPath means text was extracted)
   const hasEditableText = currentSlide?.cleanPath && currentSlide?.textBlocks && currentSlide.textBlocks.length > 0;
   
-  // Get selected block
-  const selectedBlock = hasEditableText && selectedBlockIndex !== null 
-    ? currentSlide.textBlocks![selectedBlockIndex] 
-    : null;
+  // Get selected blocks
+  const selectedBlocks = hasEditableText 
+    ? selectedBlockIndices.map(i => currentSlide.textBlocks![i]).filter(Boolean)
+    : [];
 
   // Update text block content
   const updateTextBlockContent = useCallback((slideIndex: number, blockIndex: number, content: string) => {
@@ -312,10 +348,95 @@ export default function Step4Present({
     });
   }, []);
 
+  // Batch update font size for selected blocks
+  const batchUpdateFontSize = useCallback((fontSize: number) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[currentSlideIndex] };
+      const textBlocks = [...(slide.textBlocks || [])];
+      selectedBlockIndices.forEach(idx => {
+        if (textBlocks[idx]) {
+          textBlocks[idx] = { ...textBlocks[idx], customFontSize: fontSize };
+        }
+      });
+      slide.textBlocks = textBlocks;
+      newSlides[currentSlideIndex] = slide;
+      return newSlides;
+    });
+  }, [currentSlideIndex, selectedBlockIndices]);
+
+  // Batch update color for selected blocks
+  const batchUpdateColor = useCallback((color: string) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[currentSlideIndex] };
+      const textBlocks = [...(slide.textBlocks || [])];
+      selectedBlockIndices.forEach(idx => {
+        if (textBlocks[idx]) {
+          textBlocks[idx] = { ...textBlocks[idx], customColor: color };
+        }
+      });
+      slide.textBlocks = textBlocks;
+      newSlides[currentSlideIndex] = slide;
+      return newSlides;
+    });
+  }, [currentSlideIndex, selectedBlockIndices]);
+
+  // Delete selected blocks
+  const deleteSelectedBlocks = useCallback(() => {
+    if (selectedBlockIndices.length === 0) return;
+    
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[currentSlideIndex] };
+      const textBlocks = (slide.textBlocks || []).filter((_, idx) => !selectedBlockIndices.includes(idx));
+      slide.textBlocks = textBlocks;
+      newSlides[currentSlideIndex] = slide;
+      return newSlides;
+    });
+    setSelectedBlockIndices([]);
+  }, [currentSlideIndex, selectedBlockIndices]);
+
+  // Select all blocks
+  const selectAllBlocks = useCallback(() => {
+    if (hasEditableText && currentSlide.textBlocks) {
+      setSelectedBlockIndices(currentSlide.textBlocks.map((_, i) => i));
+    }
+  }, [hasEditableText, currentSlide]);
+
+  // Handle block selection (with Shift for multi-select)
+  const handleBlockSelect = useCallback((blockIndex: number, e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      // Toggle selection
+      setSelectedBlockIndices(prev => 
+        prev.includes(blockIndex) 
+          ? prev.filter(i => i !== blockIndex)
+          : [...prev, blockIndex]
+      );
+    } else {
+      // Single select
+      setSelectedBlockIndices([blockIndex]);
+    }
+  }, []);
+
   // Deselect when clicking outside
   const handleContainerClick = useCallback(() => {
-    setSelectedBlockIndex(null);
+    setSelectedBlockIndices([]);
   }, []);
+
+  // Handle keyboard shortcuts for delete
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBlockIndices.length > 0) {
+        // Don't delete if we're editing text
+        if (document.activeElement?.getAttribute('contenteditable') === 'true') return;
+        e.preventDefault();
+        deleteSelectedBlocks();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedBlockIndices, deleteSelectedBlocks]);
 
   const enterFullscreen = useCallback(() => {
     setIsFullscreen(true);
@@ -573,20 +694,10 @@ ${hasText ? (slide.textBlocks || []).map(block => `
         )}
       </div>
 
-      {/* Text block controls - show when a block is selected */}
-      {editMode && hasEditableText && selectedBlock && selectedBlockIndex !== null && (
-        <div className="mb-4">
-          <TextBlockControls
-            block={selectedBlock}
-            onUpdateFontSize={(size) => updateTextBlockFontSize(currentSlideIndex, selectedBlockIndex, size)}
-            onUpdateColor={(color) => updateTextBlockColor(currentSlideIndex, selectedBlockIndex, color)}
-          />
-        </div>
-      )}
-
-      {/* Overlay controls - show when slide has editable text */}
+      {/* Combined toolbar - overlay controls + text block controls in one row */}
       {hasEditableText && (
-        <div className="mb-4 flex items-center gap-4 p-3 bg-white/5 rounded-lg">
+        <div className="mb-4 flex items-center gap-4 p-3 bg-white/5 rounded-lg flex-wrap">
+          {/* Overlay controls */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -594,7 +705,7 @@ ${hasText ? (slide.textBlocks || []).map(block => `
               onChange={(e) => setShowOriginalOverlay(e.target.checked)}
               className="w-4 h-4 rounded accent-accent-blue"
             />
-            <span className="text-sm">叠加原图对比</span>
+            <span className="text-sm">叠加原图</span>
           </label>
           {showOriginalOverlay && (
             <div className="flex items-center gap-2">
@@ -605,10 +716,22 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                 max="90"
                 value={overlayOpacity}
                 onChange={(e) => setOverlayOpacity(parseInt(e.target.value))}
-                className="w-32 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
+                className="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
               />
-              <span className="text-xs text-white/80 w-8">{overlayOpacity}%</span>
+              <span className="text-xs text-white/80 w-6">{overlayOpacity}%</span>
             </div>
+          )}
+
+          {/* Text block controls - inline */}
+          {editMode && (
+            <InlineTextBlockControls
+              selectedBlocks={selectedBlocks}
+              onUpdateFontSize={batchUpdateFontSize}
+              onUpdateColor={batchUpdateColor}
+              onDelete={deleteSelectedBlocks}
+              onSelectAll={selectAllBlocks}
+              totalBlocks={currentSlide.textBlocks?.length || 0}
+            />
           )}
         </div>
       )}
@@ -641,8 +764,8 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                         key={blockIndex}
                         block={block}
                         blockIndex={blockIndex}
-                        isSelected={selectedBlockIndex === blockIndex}
-                        onSelect={() => setSelectedBlockIndex(blockIndex)}
+                        isSelected={selectedBlockIndices.includes(blockIndex)}
+                        onSelect={(e) => handleBlockSelect(blockIndex, e)}
                         onUpdateContent={(content) => updateTextBlockContent(currentSlideIndex, blockIndex, content)}
                         onUpdatePosition={(x, y) => updateTextBlockPosition(currentSlideIndex, blockIndex, x, y)}
                         containerRef={previewContainerRef}
