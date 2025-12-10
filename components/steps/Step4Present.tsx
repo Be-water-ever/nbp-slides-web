@@ -8,14 +8,23 @@ import {
   DownloadIcon,
   RefreshIcon,
   XIcon,
-  EditIcon
+  EditIcon,
+  LoadingSpinner
 } from "@/components/icons";
+import {
+  downloadSlideAsPNG,
+  downloadAllSlidesAsPNG,
+  downloadSlidesAsPDF,
+  downloadSlidesAsPPTX,
+} from "@/lib/export-utils";
 
 interface Step4PresentProps {
   appState: AppState;
   onPrev: () => void;
   onRestart: () => void;
 }
+
+type DownloadFormat = "png" | "pdf" | "pptx";
 
 // Helper to get font size from OCR size label
 function getFontSize(size: string): string {
@@ -98,6 +107,8 @@ export default function Step4Present({
   const [editMode, setEditMode] = useState(true);
   const [editingBlockIndex, setEditingBlockIndex] = useState<number | null>(null);
   const [localSlides, setLocalSlides] = useState(appState.generatedSlides);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<DownloadFormat>("png");
 
   const slides = localSlides;
   const currentSlide = slides[currentSlideIndex];
@@ -147,39 +158,45 @@ export default function Step4Present({
     }
   }, [nextSlide, prevSlide, exitFullscreen]);
 
-  const downloadSlide = useCallback(async (slide: GeneratedSlide) => {
+  // Download current slide with selected format
+  const downloadCurrentSlide = useCallback(async () => {
+    if (!currentSlide) return;
+    
+    setIsExporting(true);
     try {
-      // For download, use enlarged or original (not clean, as user might want original)
-      const url = slide.enlarged || slide.path;
-      
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      if (exportFormat === "png") {
+        await downloadSlideAsPNG(currentSlide, currentSlide.number);
+      } else if (exportFormat === "pdf") {
+        await downloadSlidesAsPDF([currentSlide]);
+      } else if (exportFormat === "pptx") {
+        await downloadSlidesAsPPTX([currentSlide]);
       }
-      
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = `slide_${slide.number}${slide.enlarged ? "_4k" : ""}.jpg`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
     } catch (error) {
-      console.error(`Failed to download slide ${slide.number}:`, error);
-      window.open(slide.enlarged || slide.path, '_blank');
+      console.error("Download failed:", error);
+      alert("下载失败，请重试");
+    } finally {
+      setIsExporting(false);
     }
-  }, []);
+  }, [currentSlide, exportFormat]);
 
-  const downloadAll = useCallback(async () => {
-    for (const slide of slides) {
-      await downloadSlide(slide);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  // Download all slides with selected format
+  const downloadAllSlides = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      if (exportFormat === "png") {
+        await downloadAllSlidesAsPNG(slides);
+      } else if (exportFormat === "pdf") {
+        await downloadSlidesAsPDF(slides);
+      } else if (exportFormat === "pptx") {
+        await downloadSlidesAsPPTX(slides);
+      }
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("下载失败，请重试");
+    } finally {
+      setIsExporting(false);
     }
-  }, [slides, downloadSlide]);
+  }, [slides, exportFormat]);
 
   // Export as HTML with editable text overlay (uses clean images where available)
   const exportAsHTML = useCallback(() => {
@@ -217,7 +234,6 @@ export default function Step4Present({
   <div class="reveal">
     <div class="slides">
 ${slides.map((slide, index) => {
-  // Use clean image if available, otherwise use enlarged/original
   const imageUrl = slide.cleanPath || slide.enlarged || slide.path;
   const hasText = slide.cleanPath && slide.textBlocks && slide.textBlocks.length > 0;
   
@@ -274,7 +290,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
         tabIndex={0}
         autoFocus
       >
-        {/* Slide display with text overlay */}
         {fullscreenSlide && (
           <div className="relative max-w-full max-h-full" style={{ aspectRatio: "16/9" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -284,7 +299,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
               className="max-w-full max-h-full object-contain"
             />
             
-            {/* Text overlay for clean slides */}
             {fullscreenHasText && (
               <div className="absolute inset-0">
                 {fullscreenSlide.textBlocks!.map((block, idx) => (
@@ -313,14 +327,12 @@ ${hasText ? (slide.textBlocks || []).map(block => `
           </div>
         )}
 
-        {/* Navigation overlay */}
         <div className="absolute inset-0 flex">
           <div className="w-1/3 h-full cursor-pointer" onClick={prevSlide} />
           <div className="w-1/3 h-full" />
           <div className="w-1/3 h-full cursor-pointer" onClick={nextSlide} />
         </div>
 
-        {/* Top bar */}
         <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between bg-gradient-to-b from-black/50 to-transparent opacity-0 hover:opacity-100 transition-opacity">
           <span className="text-white/80 text-sm">
             {currentSlideIndex + 1} / {slides.length}
@@ -334,7 +346,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
           </button>
         </div>
 
-        {/* Progress bar */}
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
           <div 
             className="h-full bg-white/50 transition-all duration-300"
@@ -342,7 +353,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
           />
         </div>
 
-        {/* Keyboard hints */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs opacity-0 hover:opacity-100 transition-opacity">
           ← → 或 空格键翻页 · ESC 退出
         </div>
@@ -350,7 +360,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
     );
   }
 
-  // Count slides with editable text
   const editableCount = slides.filter(s => s.cleanPath).length;
 
   return (
@@ -380,7 +389,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
           <div className="flex-1 bg-black rounded-xl overflow-hidden relative">
             {currentSlide && (
               <>
-                {/* Background image - use clean version if available */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={getDisplayUrl(currentSlide, editMode)}
@@ -388,7 +396,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                   className="w-full h-full object-contain"
                 />
                 
-                {/* Editable text layer - only for slides with cleanPath */}
                 {editMode && hasEditableText && (
                   <div className="absolute inset-0 pointer-events-auto">
                     {currentSlide.textBlocks!.map((block, blockIndex) => (
@@ -408,7 +415,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
               </>
             )}
             
-            {/* Slide info overlay */}
             <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-auto">
               <span className="bg-black/50 px-3 py-1.5 rounded-lg text-sm">
                 第 {currentSlideIndex + 1} 页 / 共 {slides.length} 页
@@ -434,11 +440,16 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                   </button>
                 )}
                 <button
-                  onClick={() => currentSlide && downloadSlide(currentSlide).catch(console.error)}
+                  onClick={downloadCurrentSlide}
+                  disabled={isExporting}
                   className="bg-black/50 p-2 rounded-lg hover:bg-black/70 transition-colors"
                   title="下载当前页"
                 >
-                  <DownloadIcon className="w-5 h-5" />
+                  {isExporting ? (
+                    <LoadingSpinner className="w-5 h-5" />
+                  ) : (
+                    <DownloadIcon className="w-5 h-5" />
+                  )}
                 </button>
               </div>
             </div>
@@ -465,7 +476,6 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                   alt={`Thumbnail ${slide.number}`}
                   className="w-full h-full object-cover"
                 />
-                {/* Editable indicator */}
                 {slide.cleanPath && (
                   <span className="absolute top-1 right-1 bg-purple-500 rounded p-0.5">
                     <EditIcon className="w-3 h-3 text-white" />
@@ -490,22 +500,60 @@ ${hasText ? (slide.textBlocks || []).map(block => `
           {/* Download options */}
           <div className="glass-panel p-4">
             <h3 className="font-medium mb-3">下载</h3>
+            
+            {/* Format selector */}
+            <div className="mb-3">
+              <label className="text-xs text-white/60 mb-1 block">选择格式</label>
+              <div className="flex gap-1">
+                {(["png", "pdf", "pptx"] as DownloadFormat[]).map((format) => (
+                  <button
+                    key={format}
+                    onClick={() => setExportFormat(format)}
+                    className={`flex-1 py-1.5 px-2 text-xs rounded transition-colors ${
+                      exportFormat === format
+                        ? "bg-accent-blue text-white"
+                        : "bg-white/10 hover:bg-white/20"
+                    }`}
+                  >
+                    {format.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-white/40 mt-1">
+                {exportFormat === "png" && "合成图片（含编辑后文字）"}
+                {exportFormat === "pdf" && "文字可选中/复制"}
+                {exportFormat === "pptx" && "文字可编辑"}
+              </p>
+            </div>
+
             <div className="space-y-2">
               <button
-                onClick={() => currentSlide && downloadSlide(currentSlide).catch(console.error)}
+                onClick={downloadCurrentSlide}
+                disabled={isExporting}
                 className="w-full btn-secondary text-sm py-2 flex items-center justify-center gap-2"
               >
-                <DownloadIcon className="w-4 h-4" />
-                下载当前页
+                {isExporting ? (
+                  <LoadingSpinner className="w-4 h-4" />
+                ) : (
+                  <DownloadIcon className="w-4 h-4" />
+                )}
+                下载当前页 (.{exportFormat})
               </button>
               <button
-                onClick={downloadAll}
+                onClick={downloadAllSlides}
+                disabled={isExporting}
                 className="w-full btn-secondary text-sm py-2 flex items-center justify-center gap-2"
               >
-                <DownloadIcon className="w-4 h-4" />
-                下载全部 ({slides.length})
+                {isExporting ? (
+                  <LoadingSpinner className="w-4 h-4" />
+                ) : (
+                  <DownloadIcon className="w-4 h-4" />
+                )}
+                下载全部 (.{exportFormat})
               </button>
-              {editableCount > 0 && (
+              
+              {/* HTML Export - always available */}
+              <div className="border-t border-white/10 pt-2 mt-2">
                 <button
                   onClick={exportAsHTML}
                   className="w-full btn-primary text-sm py-2 flex items-center justify-center gap-2"
@@ -514,7 +562,7 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                   <DownloadIcon className="w-4 h-4" />
                   导出 HTML (可编辑)
                 </button>
-              )}
+              </div>
             </div>
           </div>
 
