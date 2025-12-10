@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { AppState, TextBlock, GeneratedSlide } from "@/app/page";
 import { 
   ArrowLeftIcon, 
@@ -26,14 +26,14 @@ interface Step4PresentProps {
 
 type DownloadFormat = "png" | "pdf" | "pptx";
 
-// Helper to get font size from OCR size label
-function getFontSize(size: string): string {
+// Helper to get font size from OCR size label (returns px value)
+function getFontSizePx(size: string): number {
   switch (size) {
-    case "large": return "4vw";
-    case "medium": return "2.5vw";
-    case "small": return "1.8vw";
-    case "tiny": return "1.2vw";
-    default: return "2vw";
+    case "large": return 48;
+    case "medium": return 32;
+    case "small": return 24;
+    case "tiny": return 16;
+    default: return 24;
   }
 }
 
@@ -45,23 +45,85 @@ function getDisplayUrl(slide: GeneratedSlide, preferClean: boolean = true): stri
   return slide.enlarged || slide.path;
 }
 
-// Editable text block component
-function EditableTextBlock({ 
+// Draggable and editable text block component
+function DraggableTextBlock({ 
   block, 
-  onUpdate,
-  isEditing,
-  onClick,
+  blockIndex,
+  isSelected,
+  onSelect,
+  onUpdateContent,
+  onUpdatePosition,
+  containerRef,
 }: { 
-  block: TextBlock; 
-  onUpdate: (content: string) => void;
-  isEditing: boolean;
-  onClick: () => void;
+  block: TextBlock;
+  blockIndex: number;
+  isSelected: boolean;
+  onSelect: () => void;
+  onUpdateContent: (content: string) => void;
+  onUpdatePosition: (x: number, y: number) => void;
+  containerRef: React.RefObject<HTMLDivElement>;
 }) {
   const textRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, blockX: 0, blockY: 0 });
+
+  const fontSize = block.customFontSize || getFontSizePx(block.size);
+  const color = block.customColor || block.color || "#333333";
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isEditing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect();
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      blockX: block.x_percent,
+      blockY: block.y_percent,
+    };
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !containerRef.current) return;
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const deltaX = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
+    const deltaY = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+    
+    const newX = Math.max(0, Math.min(100, dragStartRef.current.blockX + deltaX));
+    const newY = Math.max(0, Math.min(100, dragStartRef.current.blockY + deltaY));
+    
+    onUpdatePosition(newX, newY);
+  }, [isDragging, containerRef, onUpdatePosition]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(true);
+    onSelect();
+    setTimeout(() => textRef.current?.focus(), 0);
+  };
 
   const handleBlur = () => {
+    setIsEditing(false);
     if (textRef.current) {
-      onUpdate(textRef.current.innerText);
+      onUpdateContent(textRef.current.innerText);
     }
   };
 
@@ -70,29 +132,100 @@ function EditableTextBlock({
       ref={textRef}
       contentEditable={isEditing}
       suppressContentEditableWarning
-      onClick={onClick}
+      onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
       onBlur={handleBlur}
-      className={`absolute transition-all duration-200 ${
-        isEditing 
-          ? "outline outline-2 outline-accent-blue bg-black/20 rounded px-2" 
-          : "cursor-pointer hover:outline hover:outline-1 hover:outline-white/30"
+      className={`absolute select-none ${
+        isDragging ? "cursor-grabbing" : "cursor-grab"
+      } ${
+        isSelected 
+          ? "outline outline-2 outline-accent-blue shadow-lg" 
+          : "hover:outline hover:outline-1 hover:outline-white/50"
+      } ${
+        isEditing ? "cursor-text bg-black/20 rounded px-2" : ""
       }`}
       style={{
         left: `${block.x_percent}%`,
         top: `${block.y_percent}%`,
         width: `${block.width_percent}%`,
         transform: "translate(-50%, -50%)",
-        fontSize: getFontSize(block.size),
-        color: block.color || "#333333",
+        fontSize: `${fontSize}px`,
+        color: color,
         textAlign: block.align as "left" | "center" | "right" || "center",
         fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif",
         fontWeight: block.size === "large" ? 600 : 400,
         lineHeight: 1.3,
         textShadow: "0 1px 3px rgba(0,0,0,0.1)",
         whiteSpace: "pre-wrap",
+        zIndex: isSelected ? 10 : 1,
       }}
     >
       {block.content}
+    </div>
+  );
+}
+
+// Text block controls component
+function TextBlockControls({
+  block,
+  onUpdateFontSize,
+  onUpdateColor,
+}: {
+  block: TextBlock;
+  onUpdateFontSize: (size: number) => void;
+  onUpdateColor: (color: string) => void;
+}) {
+  const currentFontSize = block.customFontSize || getFontSizePx(block.size);
+  const currentColor = block.customColor || block.color || "#333333";
+
+  const handleEyeDropper = async () => {
+    if ('EyeDropper' in window) {
+      try {
+        // @ts-ignore - EyeDropper API
+        const eyeDropper = new window.EyeDropper();
+        const result = await eyeDropper.open();
+        onUpdateColor(result.sRGBHex);
+      } catch (e) {
+        // User cancelled
+      }
+    } else {
+      alert("您的浏览器不支持吸色功能，请使用 Chrome 95+ 或 Edge 95+");
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-4 p-3 bg-white/10 rounded-lg backdrop-blur-sm">
+      {/* Font size control */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-white/60">字号</span>
+        <input
+          type="range"
+          min="12"
+          max="72"
+          value={currentFontSize}
+          onChange={(e) => onUpdateFontSize(parseInt(e.target.value))}
+          className="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
+        />
+        <span className="text-xs text-white/80 w-8">{currentFontSize}px</span>
+      </div>
+
+      {/* Color control */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-white/60">颜色</span>
+        <input
+          type="color"
+          value={currentColor}
+          onChange={(e) => onUpdateColor(e.target.value)}
+          className="w-8 h-6 rounded cursor-pointer border border-white/20"
+        />
+        <button
+          onClick={handleEyeDropper}
+          className="px-2 py-1 text-xs bg-white/10 hover:bg-white/20 rounded transition-colors"
+          title="吸色"
+        >
+          🎯 吸色
+        </button>
+      </div>
     </div>
   );
 }
@@ -105,19 +238,30 @@ export default function Step4Present({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [editMode, setEditMode] = useState(true);
-  const [editingBlockIndex, setEditingBlockIndex] = useState<number | null>(null);
+  const [selectedBlockIndex, setSelectedBlockIndex] = useState<number | null>(null);
   const [localSlides, setLocalSlides] = useState(appState.generatedSlides);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<DownloadFormat>("png");
+  
+  // Overlay controls for comparing with original image
+  const [showOriginalOverlay, setShowOriginalOverlay] = useState(false);
+  const [overlayOpacity, setOverlayOpacity] = useState(50);
+  
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const slides = localSlides;
   const currentSlide = slides[currentSlideIndex];
   
   // Check if current slide has editable text (cleanPath means text was extracted)
   const hasEditableText = currentSlide?.cleanPath && currentSlide?.textBlocks && currentSlide.textBlocks.length > 0;
+  
+  // Get selected block
+  const selectedBlock = hasEditableText && selectedBlockIndex !== null 
+    ? currentSlide.textBlocks![selectedBlockIndex] 
+    : null;
 
   // Update text block content
-  const updateTextBlock = useCallback((slideIndex: number, blockIndex: number, content: string) => {
+  const updateTextBlockContent = useCallback((slideIndex: number, blockIndex: number, content: string) => {
     setLocalSlides(prev => {
       const newSlides = [...prev];
       const slide = { ...newSlides[slideIndex] };
@@ -127,6 +271,50 @@ export default function Step4Present({
       newSlides[slideIndex] = slide;
       return newSlides;
     });
+  }, []);
+
+  // Update text block position
+  const updateTextBlockPosition = useCallback((slideIndex: number, blockIndex: number, x: number, y: number) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[slideIndex] };
+      const textBlocks = [...(slide.textBlocks || [])];
+      textBlocks[blockIndex] = { ...textBlocks[blockIndex], x_percent: x, y_percent: y };
+      slide.textBlocks = textBlocks;
+      newSlides[slideIndex] = slide;
+      return newSlides;
+    });
+  }, []);
+
+  // Update text block font size
+  const updateTextBlockFontSize = useCallback((slideIndex: number, blockIndex: number, fontSize: number) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[slideIndex] };
+      const textBlocks = [...(slide.textBlocks || [])];
+      textBlocks[blockIndex] = { ...textBlocks[blockIndex], customFontSize: fontSize };
+      slide.textBlocks = textBlocks;
+      newSlides[slideIndex] = slide;
+      return newSlides;
+    });
+  }, []);
+
+  // Update text block color
+  const updateTextBlockColor = useCallback((slideIndex: number, blockIndex: number, color: string) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[slideIndex] };
+      const textBlocks = [...(slide.textBlocks || [])];
+      textBlocks[blockIndex] = { ...textBlocks[blockIndex], customColor: color };
+      slide.textBlocks = textBlocks;
+      newSlides[slideIndex] = slide;
+      return newSlides;
+    });
+  }, []);
+
+  // Deselect when clicking outside
+  const handleContainerClick = useCallback(() => {
+    setSelectedBlockIndex(null);
   }, []);
 
   const enterFullscreen = useCallback(() => {
@@ -301,27 +489,31 @@ ${hasText ? (slide.textBlocks || []).map(block => `
             
             {fullscreenHasText && (
               <div className="absolute inset-0">
-                {fullscreenSlide.textBlocks!.map((block, idx) => (
-                  <div
-                    key={idx}
-                    className="absolute"
-                    style={{
-                      left: `${block.x_percent}%`,
-                      top: `${block.y_percent}%`,
-                      width: `${block.width_percent}%`,
-                      transform: "translate(-50%, -50%)",
-                      fontSize: getFontSize(block.size),
-                      color: block.color || "#333333",
-                      textAlign: block.align as "left" | "center" | "right" || "center",
-                      fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif",
-                      fontWeight: block.size === "large" ? 600 : 400,
-                      lineHeight: 1.3,
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {block.content}
-                  </div>
-                ))}
+                {fullscreenSlide.textBlocks!.map((block, idx) => {
+                  const fontSize = block.customFontSize || getFontSizePx(block.size);
+                  const color = block.customColor || block.color || "#333333";
+                  return (
+                    <div
+                      key={idx}
+                      className="absolute"
+                      style={{
+                        left: `${block.x_percent}%`,
+                        top: `${block.y_percent}%`,
+                        width: `${block.width_percent}%`,
+                        transform: "translate(-50%, -50%)",
+                        fontSize: `${fontSize}px`,
+                        color: color,
+                        textAlign: block.align as "left" | "center" | "right" || "center",
+                        fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif",
+                        fontWeight: block.size === "large" ? 600 : 400,
+                        lineHeight: 1.3,
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {block.content}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -365,30 +557,75 @@ ${hasText ? (slide.textBlocks || []).map(block => `
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-4">
         <h2 className="text-2xl font-semibold mb-2">展示并编辑幻灯片</h2>
         <p className="text-white/60">
           {hasEditableText 
-            ? "点击幻灯片上的文字可直接编辑 · 全屏演示或下载"
+            ? "拖拽移动文字块 · 双击编辑内容 · 全屏演示或下载"
             : "全屏演示或下载 · 返回第 3 步提取可编辑文字"
           }
         </p>
         {hasEditableText && (
           <p className="text-purple-400 text-sm mt-1 flex items-center gap-1">
             <EditIcon className="w-4 h-4" />
-            此页已提取 {currentSlide.textBlocks!.length} 个可编辑文字块（背景已清除原文字）
+            此页已提取 {currentSlide.textBlocks!.length} 个可编辑文字块
           </p>
         )}
       </div>
 
+      {/* Text block controls - show when a block is selected */}
+      {editMode && hasEditableText && selectedBlock && selectedBlockIndex !== null && (
+        <div className="mb-4">
+          <TextBlockControls
+            block={selectedBlock}
+            onUpdateFontSize={(size) => updateTextBlockFontSize(currentSlideIndex, selectedBlockIndex, size)}
+            onUpdateColor={(color) => updateTextBlockColor(currentSlideIndex, selectedBlockIndex, color)}
+          />
+        </div>
+      )}
+
+      {/* Overlay controls - show when slide has editable text */}
+      {hasEditableText && (
+        <div className="mb-4 flex items-center gap-4 p-3 bg-white/5 rounded-lg">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showOriginalOverlay}
+              onChange={(e) => setShowOriginalOverlay(e.target.checked)}
+              className="w-4 h-4 rounded accent-accent-blue"
+            />
+            <span className="text-sm">叠加原图对比</span>
+          </label>
+          {showOriginalOverlay && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/60">透明度</span>
+              <input
+                type="range"
+                min="10"
+                max="90"
+                value={overlayOpacity}
+                onChange={(e) => setOverlayOpacity(parseInt(e.target.value))}
+                className="w-32 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
+              />
+              <span className="text-xs text-white/80 w-8">{overlayOpacity}%</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Content */}
-      <div className="flex-1 flex gap-6">
+      <div className="flex-1 flex gap-6 min-h-0">
         {/* Preview Panel */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0">
           {/* Current slide preview with editable text */}
-          <div className="flex-1 bg-black rounded-xl overflow-hidden relative">
+          <div 
+            ref={previewContainerRef}
+            className="flex-1 bg-black rounded-xl overflow-hidden relative min-h-0"
+            onClick={handleContainerClick}
+          >
             {currentSlide && (
               <>
+                {/* Base layer: Clean image (or original if not editable) */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={getDisplayUrl(currentSlide, editMode)}
@@ -396,27 +633,43 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                   className="w-full h-full object-contain"
                 />
                 
+                {/* Editable text blocks layer */}
                 {editMode && hasEditableText && (
-                  <div className="absolute inset-0 pointer-events-auto">
+                  <div className="absolute inset-0">
                     {currentSlide.textBlocks!.map((block, blockIndex) => (
-                      <EditableTextBlock
+                      <DraggableTextBlock
                         key={blockIndex}
                         block={block}
-                        isEditing={editingBlockIndex === blockIndex}
-                        onClick={() => setEditingBlockIndex(blockIndex)}
-                        onUpdate={(content) => {
-                          updateTextBlock(currentSlideIndex, blockIndex, content);
-                          setEditingBlockIndex(null);
-                        }}
+                        blockIndex={blockIndex}
+                        isSelected={selectedBlockIndex === blockIndex}
+                        onSelect={() => setSelectedBlockIndex(blockIndex)}
+                        onUpdateContent={(content) => updateTextBlockContent(currentSlideIndex, blockIndex, content)}
+                        onUpdatePosition={(x, y) => updateTextBlockPosition(currentSlideIndex, blockIndex, x, y)}
+                        containerRef={previewContainerRef}
                       />
                     ))}
+                  </div>
+                )}
+
+                {/* Original image overlay for comparison */}
+                {editMode && hasEditableText && showOriginalOverlay && (
+                  <div 
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ opacity: overlayOpacity / 100 }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={currentSlide.enlarged || currentSlide.path}
+                      alt="Original for comparison"
+                      className="w-full h-full object-contain"
+                    />
                   </div>
                 )}
               </>
             )}
             
-            <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-auto">
-              <span className="bg-black/50 px-3 py-1.5 rounded-lg text-sm">
+            <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none">
+              <span className="bg-black/50 px-3 py-1.5 rounded-lg text-sm pointer-events-auto">
                 第 {currentSlideIndex + 1} 页 / 共 {slides.length} 页
                 {currentSlide?.enlarged && (
                   <span className="ml-2 text-green-400">4K</span>
@@ -425,7 +678,7 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                   <span className="ml-2 text-purple-400">可编辑</span>
                 )}
               </span>
-              <div className="flex gap-2">
+              <div className="flex gap-2 pointer-events-auto">
                 {hasEditableText && (
                   <button
                     onClick={() => setEditMode(!editMode)}

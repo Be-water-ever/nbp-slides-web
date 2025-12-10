@@ -16,6 +16,9 @@ export interface TextBlock {
   size: "large" | "medium" | "small" | "tiny";
   align: "left" | "center" | "right";
   color: string;
+  // User-customizable overrides
+  customFontSize?: number;  // px value, overrides size
+  customColor?: string;     // hex value, overrides color
 }
 
 // Slide structure
