@@ -21,6 +21,16 @@ export interface TextBlock {
   customColor?: string;     // hex value, overrides color
 }
 
+// Image block for user-added images
+export interface ImageBlock {
+  id: string;
+  src: string;              // data URL or uploaded URL
+  x_percent: number;
+  y_percent: number;
+  width_percent: number;
+  aspectRatio: number;      // original aspect ratio for Shift-resize
+}
+
 // Slide structure
 export interface GeneratedSlide {
   number: number;
@@ -28,6 +38,7 @@ export interface GeneratedSlide {
   enlarged?: string;         // 4K enlarged image URL (optional)
   cleanPath?: string;        // Image with text removed (optional)
   textBlocks?: TextBlock[];  // OCR-extracted text for editing (optional)
+  imageBlocks?: ImageBlock[]; // User-added images (optional)
 }
 
 // Application state type

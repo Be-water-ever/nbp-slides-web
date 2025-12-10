@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { AppState, TextBlock, GeneratedSlide } from "@/app/page";
+import { AppState, TextBlock, GeneratedSlide, ImageBlock } from "@/app/page";
 import { 
   ArrowLeftIcon, 
   PlayIcon, 
@@ -17,6 +17,11 @@ import {
   downloadSlidesAsPDF,
   downloadSlidesAsPPTX,
 } from "@/lib/export-utils";
+
+// Generate unique ID for new elements
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 9);
+}
 
 interface Step4PresentProps {
   appState: AppState;
@@ -267,6 +272,122 @@ function InlineTextBlockControls({
   );
 }
 
+// Resizable image block component
+function ResizableImageBlock({
+  image,
+  isSelected,
+  onSelect,
+  onUpdatePosition,
+  onUpdateSize,
+  containerRef,
+}: {
+  image: ImageBlock;
+  isSelected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
+  onUpdatePosition: (x: number, y: number) => void;
+  onUpdateSize: (width: number) => void;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, imgX: 0, imgY: 0 });
+  const resizeStartRef = useRef({ x: 0, width: 0 });
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(e);
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      imgX: image.x_percent,
+      imgY: image.y_percent,
+    };
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    resizeStartRef.current = {
+      x: e.clientX,
+      width: image.width_percent,
+    };
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+
+    if (isDragging) {
+      const deltaX = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
+      const deltaY = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+      const newX = Math.max(0, Math.min(100, dragStartRef.current.imgX + deltaX));
+      const newY = Math.max(0, Math.min(100, dragStartRef.current.imgY + deltaY));
+      onUpdatePosition(newX, newY);
+    }
+
+    if (isResizing) {
+      const deltaX = ((e.clientX - resizeStartRef.current.x) / rect.width) * 100;
+      let newWidth = Math.max(5, Math.min(100, resizeStartRef.current.width + deltaX));
+      onUpdateSize(newWidth);
+    }
+  }, [isDragging, isResizing, containerRef, onUpdatePosition, onUpdateSize]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+    setIsResizing(false);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging || isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+
+  const heightPercent = image.width_percent / image.aspectRatio;
+
+  return (
+    <div
+      className={`absolute ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} ${
+        isSelected ? 'outline outline-2 outline-accent-blue' : 'hover:outline hover:outline-1 hover:outline-white/50'
+      }`}
+      style={{
+        left: `${image.x_percent}%`,
+        top: `${image.y_percent}%`,
+        width: `${image.width_percent}%`,
+        paddingBottom: `${heightPercent}%`,
+        transform: 'translate(-50%, -50%)',
+        zIndex: isSelected ? 10 : 1,
+      }}
+      onMouseDown={handleMouseDown}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={image.src}
+        alt="User added image"
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+        draggable={false}
+      />
+      
+      {/* Resize handle - bottom right corner */}
+      {isSelected && (
+        <div
+          className="absolute bottom-0 right-0 w-4 h-4 bg-accent-blue cursor-se-resize transform translate-x-1/2 translate-y-1/2 rounded-sm"
+          onMouseDown={handleResizeMouseDown}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function Step4Present({ 
   appState, 
   onPrev, 
@@ -276,13 +397,22 @@ export default function Step4Present({
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [editMode, setEditMode] = useState(true);
   const [selectedBlockIndices, setSelectedBlockIndices] = useState<number[]>([]);
+  const [selectedImageIndices, setSelectedImageIndices] = useState<number[]>([]);
   const [localSlides, setLocalSlides] = useState(appState.generatedSlides);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<DownloadFormat>("png");
   
+  // History for undo
+  const [history, setHistory] = useState<GeneratedSlide[][]>([appState.generatedSlides]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  
   // Overlay controls for comparing with original image
   const [showOriginalOverlay, setShowOriginalOverlay] = useState(false);
   const [overlayOpacity, setOverlayOpacity] = useState(50);
+  
+  // Drag and drop for image upload
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
@@ -291,11 +421,37 @@ export default function Step4Present({
   
   // Check if current slide has editable text (cleanPath means text was extracted)
   const hasEditableText = currentSlide?.cleanPath && currentSlide?.textBlocks && currentSlide.textBlocks.length > 0;
+  const hasImages = currentSlide?.imageBlocks && currentSlide.imageBlocks.length > 0;
   
   // Get selected blocks
   const selectedBlocks = hasEditableText 
     ? selectedBlockIndices.map(i => currentSlide.textBlocks![i]).filter(Boolean)
     : [];
+
+  // Save to history when slides change
+  const saveToHistory = useCallback((newSlides: GeneratedSlide[]) => {
+    setHistory(prev => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(newSlides);
+      return newHistory.slice(-50); // Keep last 50 states
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+    setLocalSlides(newSlides);
+  }, [historyIndex]);
+
+  // Undo function
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setLocalSlides(history[newIndex]);
+      setSelectedBlockIndices([]);
+      setSelectedImageIndices([]);
+    }
+  }, [historyIndex, history]);
+
+  // Can undo check
+  const canUndo = historyIndex > 0;
 
   // Update text block content
   const updateTextBlockContent = useCallback((slideIndex: number, blockIndex: number, content: string) => {
@@ -383,20 +539,25 @@ export default function Step4Present({
     });
   }, [currentSlideIndex, selectedBlockIndices]);
 
-  // Delete selected blocks
+  // Delete selected blocks (text or images)
   const deleteSelectedBlocks = useCallback(() => {
-    if (selectedBlockIndices.length === 0) return;
+    if (selectedBlockIndices.length === 0 && selectedImageIndices.length === 0) return;
     
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[currentSlideIndex] };
-      const textBlocks = (slide.textBlocks || []).filter((_, idx) => !selectedBlockIndices.includes(idx));
-      slide.textBlocks = textBlocks;
-      newSlides[currentSlideIndex] = slide;
-      return newSlides;
-    });
+    const newSlides = [...localSlides];
+    const slide = { ...newSlides[currentSlideIndex] };
+    
+    if (selectedBlockIndices.length > 0) {
+      slide.textBlocks = (slide.textBlocks || []).filter((_, idx) => !selectedBlockIndices.includes(idx));
+    }
+    if (selectedImageIndices.length > 0) {
+      slide.imageBlocks = (slide.imageBlocks || []).filter((_, idx) => !selectedImageIndices.includes(idx));
+    }
+    
+    newSlides[currentSlideIndex] = slide;
+    saveToHistory(newSlides);
     setSelectedBlockIndices([]);
-  }, [currentSlideIndex, selectedBlockIndices]);
+    setSelectedImageIndices([]);
+  }, [currentSlideIndex, selectedBlockIndices, selectedImageIndices, localSlides, saveToHistory]);
 
   // Select all blocks
   const selectAllBlocks = useCallback(() => {
@@ -407,37 +568,150 @@ export default function Step4Present({
 
   // Handle block selection (with Shift for multi-select)
   const handleBlockSelect = useCallback((blockIndex: number, e: React.MouseEvent) => {
+    setSelectedImageIndices([]); // Deselect images when selecting text
     if (e.shiftKey) {
-      // Toggle selection
       setSelectedBlockIndices(prev => 
         prev.includes(blockIndex) 
           ? prev.filter(i => i !== blockIndex)
           : [...prev, blockIndex]
       );
     } else {
-      // Single select
       setSelectedBlockIndices([blockIndex]);
+    }
+  }, []);
+
+  // Handle image selection
+  const handleImageSelect = useCallback((imageIndex: number, e: React.MouseEvent) => {
+    setSelectedBlockIndices([]); // Deselect text when selecting images
+    if (e.shiftKey) {
+      setSelectedImageIndices(prev => 
+        prev.includes(imageIndex) 
+          ? prev.filter(i => i !== imageIndex)
+          : [...prev, imageIndex]
+      );
+    } else {
+      setSelectedImageIndices([imageIndex]);
     }
   }, []);
 
   // Deselect when clicking outside
   const handleContainerClick = useCallback(() => {
     setSelectedBlockIndices([]);
+    setSelectedImageIndices([]);
   }, []);
 
-  // Handle keyboard shortcuts for delete
+  // Add new text block
+  const addNewTextBlock = useCallback(() => {
+    const newSlides = [...localSlides];
+    const slide = { ...newSlides[currentSlideIndex] };
+    const newBlock: TextBlock = {
+      content: "双击编辑文字",
+      x_percent: 50,
+      y_percent: 50,
+      width_percent: 40,
+      size: "medium",
+      align: "center",
+      color: "#333333",
+    };
+    slide.textBlocks = [...(slide.textBlocks || []), newBlock];
+    newSlides[currentSlideIndex] = slide;
+    saveToHistory(newSlides);
+  }, [currentSlideIndex, localSlides, saveToHistory]);
+
+  // Add image from file
+  const addImageFromFile = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const aspectRatio = img.width / img.height;
+        const newImage: ImageBlock = {
+          id: generateId(),
+          src: e.target?.result as string,
+          x_percent: 50,
+          y_percent: 50,
+          width_percent: 30,
+          aspectRatio,
+        };
+        const newSlides = [...localSlides];
+        const slide = { ...newSlides[currentSlideIndex] };
+        slide.imageBlocks = [...(slide.imageBlocks || []), newImage];
+        newSlides[currentSlideIndex] = slide;
+        saveToHistory(newSlides);
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  }, [currentSlideIndex, localSlides, saveToHistory]);
+
+  // Update image position
+  const updateImagePosition = useCallback((imageIndex: number, x: number, y: number) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[currentSlideIndex] };
+      const imageBlocks = [...(slide.imageBlocks || [])];
+      if (imageBlocks[imageIndex]) {
+        imageBlocks[imageIndex] = { ...imageBlocks[imageIndex], x_percent: x, y_percent: y };
+      }
+      slide.imageBlocks = imageBlocks;
+      newSlides[currentSlideIndex] = slide;
+      return newSlides;
+    });
+  }, [currentSlideIndex]);
+
+  // Update image size
+  const updateImageSize = useCallback((imageIndex: number, width: number) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[currentSlideIndex] };
+      const imageBlocks = [...(slide.imageBlocks || [])];
+      if (imageBlocks[imageIndex]) {
+        imageBlocks[imageIndex] = { ...imageBlocks[imageIndex], width_percent: width };
+      }
+      slide.imageBlocks = imageBlocks;
+      newSlides[currentSlideIndex] = slide;
+      return newSlides;
+    });
+  }, [currentSlideIndex]);
+
+  // Handle file drop
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    files.forEach(addImageFromFile);
+  }, [addImageFromFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragOver(false);
+  }, []);
+
+  // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBlockIndices.length > 0) {
-        // Don't delete if we're editing text
-        if (document.activeElement?.getAttribute('contenteditable') === 'true') return;
+      // Don't handle if editing text
+      if (document.activeElement?.getAttribute('contenteditable') === 'true') return;
+      
+      // Delete
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedBlockIndices.length > 0 || selectedImageIndices.length > 0)) {
         e.preventDefault();
         deleteSelectedBlocks();
+      }
+      
+      // Undo: Ctrl/Cmd + Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        undo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedBlockIndices, deleteSelectedBlocks]);
+  }, [selectedBlockIndices, selectedImageIndices, deleteSelectedBlocks, undo]);
 
   const enterFullscreen = useCallback(() => {
     setIsFullscreen(true);
@@ -695,47 +969,106 @@ ${hasText ? (slide.textBlocks || []).map(block => `
         )}
       </div>
 
-      {/* Combined toolbar - overlay controls + text block controls in one row */}
-      {hasEditableText && (
-        <div className="mb-4 flex items-center gap-4 p-3 bg-white/5 rounded-lg flex-wrap">
-          {/* Overlay controls */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showOriginalOverlay}
-              onChange={(e) => setShowOriginalOverlay(e.target.checked)}
-              className="w-4 h-4 rounded accent-accent-blue"
-            />
-            <span className="text-sm">叠加原图</span>
-          </label>
-          {showOriginalOverlay && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-white/60">透明度</span>
-              <input
-                type="range"
-                min="10"
-                max="90"
-                value={overlayOpacity}
-                onChange={(e) => setOverlayOpacity(parseInt(e.target.value))}
-                className="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
-              />
-              <span className="text-xs text-white/80 w-6">{overlayOpacity}%</span>
-            </div>
-          )}
+      {/* Toolbar */}
+      <div className="mb-4 flex items-center gap-3 p-3 bg-white/5 rounded-lg flex-wrap">
+        {/* Undo button */}
+        <button
+          onClick={undo}
+          disabled={!canUndo}
+          className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded transition-colors ${
+            canUndo 
+              ? 'bg-white/10 hover:bg-white/20' 
+              : 'bg-white/5 text-white/30 cursor-not-allowed'
+          }`}
+          title="撤销 (Ctrl+Z)"
+        >
+          ↶ 撤销
+        </button>
 
-          {/* Text block controls - inline */}
-          {editMode && (
-            <InlineTextBlockControls
-              selectedBlocks={selectedBlocks}
-              onUpdateFontSize={batchUpdateFontSize}
-              onUpdateColor={batchUpdateColor}
-              onDelete={deleteSelectedBlocks}
-              onSelectAll={selectAllBlocks}
-              totalBlocks={currentSlide.textBlocks?.length || 0}
-            />
-          )}
-        </div>
-      )}
+        {/* Add text button */}
+        <button
+          onClick={addNewTextBlock}
+          className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded transition-colors"
+          title="添加文字"
+        >
+          T+ 添加文字
+        </button>
+
+        {/* Add image button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded transition-colors"
+          title="添加图片（或拖拽到幻灯片）"
+        >
+          🖼️ 添加图片
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) addImageFromFile(file);
+            e.target.value = '';
+          }}
+        />
+
+        {/* Overlay controls - show when slide has editable content */}
+        {hasEditableText && (
+          <>
+            <div className="w-px h-6 bg-white/20" />
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOriginalOverlay}
+                onChange={(e) => setShowOriginalOverlay(e.target.checked)}
+                className="w-4 h-4 rounded accent-accent-blue"
+              />
+              <span className="text-sm">叠加原图</span>
+            </label>
+            {showOriginalOverlay && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-white/60">透明度</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="90"
+                  value={overlayOpacity}
+                  onChange={(e) => setOverlayOpacity(parseInt(e.target.value))}
+                  className="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-accent-blue"
+                />
+                <span className="text-xs text-white/80 w-6">{overlayOpacity}%</span>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Text block controls - inline */}
+        {editMode && hasEditableText && (
+          <InlineTextBlockControls
+            selectedBlocks={selectedBlocks}
+            onUpdateFontSize={batchUpdateFontSize}
+            onUpdateColor={batchUpdateColor}
+            onDelete={deleteSelectedBlocks}
+            onSelectAll={selectAllBlocks}
+            totalBlocks={currentSlide.textBlocks?.length || 0}
+          />
+        )}
+
+        {/* Selected images info */}
+        {selectedImageIndices.length > 0 && (
+          <div className="flex items-center gap-2 border-l border-white/20 pl-4">
+            <span className="text-xs text-white/60">已选 {selectedImageIndices.length} 个图片</span>
+            <button
+              onClick={deleteSelectedBlocks}
+              className="px-2 py-1 text-xs bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded transition-colors"
+            >
+              🗑️ 删除
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Main Content */}
       <div className="flex-1 flex gap-6 min-h-0">
@@ -744,9 +1077,23 @@ ${hasText ? (slide.textBlocks || []).map(block => `
           {/* Current slide preview with editable text */}
           <div 
             ref={previewContainerRef}
-            className="flex-1 bg-black rounded-xl overflow-hidden relative min-h-0"
+            className={`flex-1 bg-black rounded-xl overflow-hidden relative min-h-0 ${
+              isDragOver ? 'ring-2 ring-accent-blue ring-inset' : ''
+            }`}
             onClick={handleContainerClick}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
           >
+            {/* Drag overlay hint */}
+            {isDragOver && (
+              <div className="absolute inset-0 bg-accent-blue/20 z-50 flex items-center justify-center pointer-events-none">
+                <div className="text-white text-lg font-medium bg-black/50 px-6 py-3 rounded-lg">
+                  松开以添加图片
+                </div>
+              </div>
+            )}
+
             {currentSlide && (
               <>
                 {/* Base layer: Clean image (or original if not editable) */}
@@ -769,6 +1116,23 @@ ${hasText ? (slide.textBlocks || []).map(block => `
                         onSelect={(e) => handleBlockSelect(blockIndex, e)}
                         onUpdateContent={(content) => updateTextBlockContent(currentSlideIndex, blockIndex, content)}
                         onUpdatePosition={(x, y) => updateTextBlockPosition(currentSlideIndex, blockIndex, x, y)}
+                        containerRef={previewContainerRef}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* User-added images layer */}
+                {editMode && hasImages && (
+                  <div className="absolute inset-0">
+                    {currentSlide.imageBlocks!.map((image, imageIndex) => (
+                      <ResizableImageBlock
+                        key={image.id}
+                        image={image}
+                        isSelected={selectedImageIndices.includes(imageIndex)}
+                        onSelect={(e) => handleImageSelect(imageIndex, e)}
+                        onUpdatePosition={(x, y) => updateImagePosition(imageIndex, x, y)}
+                        onUpdateSize={(width) => updateImageSize(imageIndex, width)}
                         containerRef={previewContainerRef}
                       />
                     ))}
