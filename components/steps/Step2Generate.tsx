@@ -81,7 +81,27 @@ export default function Step2Generate({
       }));
 
       try {
-        // Build prompt for this slide
+        // Check if this slide has an uploaded image (skip AI generation)
+        if (slide.uploadUrl) {
+          // Use the uploaded image directly
+          const newSlide: GeneratedSlide = {
+            number: slide.number,
+            path: slide.uploadUrl,
+            textBlocks: [], // No OCR for uploaded slides initially
+          };
+          newSlides.push(newSlide);
+          setGeneratedSlides([...newSlides]);
+          
+          setProgress(prev => ({
+            ...prev,
+            completedSlides: prev.completedSlides + 1,
+          }));
+          
+          console.log(`Slide ${slide.number}: Using uploaded image`);
+          continue; // Skip to next slide
+        }
+
+        // Build prompt for this slide (AI generation)
         const prompt = `
 You are an expert presentation designer for a high-end tech keynote.
 

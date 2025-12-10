@@ -6,6 +6,7 @@ export interface ParsedSlide {
   title: string;
   content: string;
   assetPaths: string[];
+  uploadUrl?: string; // If present, use this image directly instead of AI generation
 }
 
 export function parseOutline(
@@ -33,6 +34,16 @@ export function parseOutline(
     
     const slideContent = match[0].trim();
     const title = match[2].trim();
+    
+    // Check for Upload URL (use existing image instead of AI generation)
+    let uploadUrl: string | undefined;
+    const uploadMatch = slideContent.match(/\*\s+\*\*Upload\*\*:\s*(.+)/);
+    if (uploadMatch) {
+      const url = uploadMatch[1].trim();
+      if (url && url.toLowerCase() !== "none" && url.startsWith("http")) {
+        uploadUrl = url;
+      }
+    }
     
     // Extract asset paths
     const assetPaths: string[] = [];
@@ -75,6 +86,7 @@ export function parseOutline(
       title,
       content: slideContent,
       assetPaths,
+      uploadUrl,
     });
   }
   

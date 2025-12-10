@@ -50,6 +50,10 @@ const DEFAULT_OUTLINE = `# Slide Outline
 *   **Scene**:
     *   **Prompt**: A professional introduction slide with key points.
 *   **Asset**: None
+
+# 提示：如需使用已上传的图片（跳过AI生成），请使用以下语法：
+# #### Slide 3: 已有图片
+# *   **Upload**: https://你的R2地址/slides/xxx.png
 `;
 
 const DEFAULT_GUIDELINE = `# Visual Design Language
@@ -62,6 +66,9 @@ const DEFAULT_GUIDELINE = `# Visual Design Language
 *   **Concept**: Ethereal, Frosted Glass, Soft Light, Spatial UI, Clean, Minimalist.
 *   **Background**: #F5F5F7 (Off-white/Light Grey).
 *   **Typography**: San Francisco / Inter (Deep Grey #333333).
+
+## Language Rules
+*   **Language**: 使用简体中文（Simplified Chinese）（除专有名词可以用英文标注）。
 `;
 
 export default function Home() {
