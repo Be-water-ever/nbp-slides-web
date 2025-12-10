@@ -18,18 +18,22 @@ export interface TextBlock {
   color: string;
 }
 
+// Slide structure
+export interface GeneratedSlide {
+  number: number;
+  path: string;              // Original image URL
+  enlarged?: string;         // 4K enlarged image URL (optional)
+  cleanPath?: string;        // Image with text removed (optional)
+  textBlocks?: TextBlock[];  // OCR-extracted text for editing (optional)
+}
+
 // Application state type
 export interface AppState {
   apiKey: string;
   outline: string;
   visualGuideline: string;
   uploadedAssets: { name: string; path: string }[];
-  generatedSlides: { 
-    number: number; 
-    path: string; 
-    enlarged?: string;
-    textBlocks?: TextBlock[]; // OCR-extracted text for editing
-  }[];
+  generatedSlides: GeneratedSlide[];
   currentJobId: string | null;
 }
 
