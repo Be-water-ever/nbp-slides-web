@@ -133,6 +133,7 @@ function DraggableTextBlock({
       contentEditable={isEditing}
       suppressContentEditableWarning
       onMouseDown={handleMouseDown}
+      onClick={(e) => e.stopPropagation()}
       onDoubleClick={handleDoubleClick}
       onBlur={handleBlur}
       className={`absolute select-none ${
