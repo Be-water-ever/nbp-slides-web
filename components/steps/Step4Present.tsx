@@ -116,7 +116,7 @@ function DraggableTextBlock({
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsEditing(true);
-    onSelect();
+    onSelect(e);
     setTimeout(() => textRef.current?.focus(), 0);
   };
 
