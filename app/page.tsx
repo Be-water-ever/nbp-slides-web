@@ -53,7 +53,7 @@ const DEFAULT_OUTLINE = `# Slide Outline
 
 # 提示：如需使用已上传的图片（跳过AI生成），请使用以下语法：
 # #### Slide 3: 已有图片
-# *   **Upload**: https://你的R2地址/slides/xxx.png
+# *   **Upload**: @filename.png  (开发环境) 或 https://你的R2地址/slides/xxx.png (生产环境)
 `;
 
 const DEFAULT_GUIDELINE = `# Visual Design Language

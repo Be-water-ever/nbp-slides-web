@@ -1,6 +1,8 @@
 // Parse the outline_visual.md format to extract slide information
 // This mirrors the logic in tools/generate_slides.py
 
+import { resolveAssetUrl } from "./asset-mapping";
+
 export interface ParsedSlide {
   number: number;
   title: string;
@@ -39,9 +41,10 @@ export function parseOutline(
     let uploadUrl: string | undefined;
     const uploadMatch = slideContent.match(/\*\s+\*\*Upload\*\*:\s*(.+)/);
     if (uploadMatch) {
-      const url = uploadMatch[1].trim();
-      if (url && url.toLowerCase() !== "none" && url.startsWith("http")) {
-        uploadUrl = url;
+      const urlOrShortName = uploadMatch[1].trim();
+      if (urlOrShortName && urlOrShortName.toLowerCase() !== "none") {
+        // 解析短名称（@filename）或完整 URL
+        uploadUrl = resolveAssetUrl(urlOrShortName);
       }
     }
     

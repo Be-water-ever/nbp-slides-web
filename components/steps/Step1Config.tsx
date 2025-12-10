@@ -4,6 +4,8 @@ import { useState, useRef, useCallback } from "react";
 import { AppState } from "@/app/page";
 import { KeyIcon, DocumentIcon, UploadIcon, ArrowRightIcon, XIcon, LoadingSpinner } from "@/components/icons";
 import { getSlideCount } from "@/lib/parse-outline";
+import { validateApiKey, getProviderDisplayName } from "@/lib/api-config";
+import { getShortName, isShortName } from "@/lib/asset-mapping";
 
 interface Step1ConfigProps {
   appState: AppState;
@@ -86,14 +88,14 @@ export default function Step1Config({ appState, updateState, onNext }: Step1Conf
       <div className="mb-6">
         <label className="flex items-center gap-2 text-sm font-medium mb-2">
           <KeyIcon className="w-4 h-4" />
-          Google API Key
+          Gemini API Key
         </label>
         <div className="relative">
           <input
             type={showApiKey ? "text" : "password"}
             value={appState.apiKey}
             onChange={(e) => updateState({ apiKey: e.target.value })}
-            placeholder="输入你的 Gemini API Key (AIza...)"
+            placeholder="输入你的 API Key (AIza... 或 sk-...)"
             className="input-glass pr-20"
           />
           <button
@@ -104,8 +106,36 @@ export default function Step1Config({ appState, updateState, onNext }: Step1Conf
             {showApiKey ? "隐藏" : "显示"}
           </button>
         </div>
+        
+        {/* API Provider 检测和显示 */}
+        {appState.apiKey && (
+          <div className="mt-2">
+            {(() => {
+              const validation = validateApiKey(appState.apiKey);
+              if (validation.valid && validation.provider) {
+                return (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                    <span className="text-green-400">
+                      {getProviderDisplayName(validation.provider)}
+                    </span>
+                  </div>
+                );
+              } else if (validation.error) {
+                return (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                    <span className="text-red-400">{validation.error}</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+        )}
+        
         <p className="mt-2 text-xs text-white/40">
-          你的 API Key 仅用于调用 Gemini API，不会被存储
+          支持 Google 官方 API (AIza...) 和云雾AI代理 (sk-...)，密钥仅用于调用 Gemini API，不会被存储
         </p>
       </div>
 
@@ -219,13 +249,22 @@ export default function Step1Config({ appState, updateState, onNext }: Step1Conf
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      value={asset.path}
+                      value={
+                        asset.path.startsWith('data:') 
+                          ? getShortName(asset.name)  // 开发环境显示短名称
+                          : asset.path                // 生产环境显示完整 URL
+                      }
                       readOnly
                       className="flex-1 text-xs bg-white/5 rounded px-2 py-1 text-white/60 truncate"
-                      title={asset.path}
+                      title={asset.path.startsWith('data:') ? `${getShortName(asset.name)} (data URL)` : asset.path}
                     />
                     <button
-                      onClick={() => copyAssetPath(asset.path)}
+                      onClick={() => {
+                        const valueToCopy = asset.path.startsWith('data:') 
+                          ? getShortName(asset.name) 
+                          : asset.path;
+                        copyAssetPath(valueToCopy);
+                      }}
                       className="text-xs text-accent-blue hover:underline whitespace-nowrap"
                       title="复制 URL"
                     >
@@ -237,7 +276,7 @@ export default function Step1Config({ appState, updateState, onNext }: Step1Conf
               {appState.uploadedAssets.length === 0 && (
                 <div className="text-xs text-white/40 text-center py-4">
                   <p>暂无上传的资产</p>
-                  <p className="mt-2">上传后可在大纲中引用 URL</p>
+                  <p className="mt-2">上传后可在大纲中使用短名称（如 @filename.png）</p>
                 </div>
               )}
             </div>
