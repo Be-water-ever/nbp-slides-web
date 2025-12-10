@@ -61,7 +61,7 @@ function DraggableTextBlock({
   onSelect: () => void;
   onUpdateContent: (content: string) => void;
   onUpdatePosition: (x: number, y: number) => void;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const textRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
