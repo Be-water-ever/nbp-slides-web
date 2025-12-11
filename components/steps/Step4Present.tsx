@@ -59,6 +59,7 @@ function DraggableTextBlock({
   onSelect,
   onUpdateContent,
   onUpdatePosition,
+  onDragEnd,
   containerRef,
 }: { 
   block: TextBlock;
@@ -67,6 +68,7 @@ function DraggableTextBlock({
   onSelect: (e: React.MouseEvent) => void;
   onUpdateContent: (content: string) => void;
   onUpdatePosition: (x: number, y: number) => void;
+  onDragEnd?: () => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const textRef = useRef<HTMLDivElement>(null);
@@ -106,7 +108,11 @@ function DraggableTextBlock({
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
-  }, []);
+    // Save position change to history when drag ends
+    if (onDragEnd) {
+      onDragEnd();
+    }
+  }, [onDragEnd]);
 
   useEffect(() => {
     if (isDragging) {
@@ -280,6 +286,7 @@ function ResizableImageBlock({
   onSelect,
   onUpdatePosition,
   onUpdateSize,
+  onDragEnd,
   containerRef,
 }: {
   image: ImageBlock;
@@ -287,6 +294,7 @@ function ResizableImageBlock({
   onSelect: (e: React.MouseEvent) => void;
   onUpdatePosition: (x: number, y: number) => void;
   onUpdateSize: (width: number) => void;
+  onDragEnd?: () => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -337,9 +345,15 @@ function ResizableImageBlock({
   }, [isDragging, isResizing, containerRef, onUpdatePosition, onUpdateSize]);
 
   const handleMouseUp = useCallback(() => {
+    const wasDragging = isDragging;
     setIsDragging(false);
     setIsResizing(false);
-  }, []);
+    
+    // Save position change to history when drag ends (but not resize, as it's handled immediately)
+    if (wasDragging && onDragEnd) {
+      onDragEnd();
+    }
+  }, [isDragging, onDragEnd]);
 
   useEffect(() => {
     if (isDragging || isResizing) {
@@ -470,18 +484,21 @@ export default function Step4Present({
 
   // Update text block content
   const updateTextBlockContent = useCallback((slideIndex: number, blockIndex: number, content: string) => {
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[slideIndex] };
-      const textBlocks = [...(slide.textBlocks || [])];
+    const newSlides = [...localSlides];
+    const slide = { ...newSlides[slideIndex] };
+    const textBlocks = [...(slide.textBlocks || [])];
+    
+    // Only save if content actually changed
+    const oldContent = textBlocks[blockIndex]?.content;
+    if (oldContent !== content) {
       textBlocks[blockIndex] = { ...textBlocks[blockIndex], content };
       slide.textBlocks = textBlocks;
       newSlides[slideIndex] = slide;
-      return newSlides;
-    });
-  }, []);
+      saveToHistory(newSlides);
+    }
+  }, [localSlides, saveToHistory]);
 
-  // Update text block position
+  // Update text block position (immediate update, history saved on drag end)
   const updateTextBlockPosition = useCallback((slideIndex: number, blockIndex: number, x: number, y: number) => {
     setLocalSlides(prev => {
       const newSlides = [...prev];
@@ -494,40 +511,55 @@ export default function Step4Present({
     });
   }, []);
 
+  // Save position change to history (called when drag ends)
+  const saveTextBlockPositionToHistory = useCallback(() => {
+    saveToHistory(localSlides);
+  }, [localSlides, saveToHistory]);
+
 
   // Batch update font size for selected blocks
   const batchUpdateFontSize = useCallback((fontSize: number) => {
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[currentSlideIndex] };
-      const textBlocks = [...(slide.textBlocks || [])];
-      selectedBlockIndices.forEach(idx => {
-        if (textBlocks[idx]) {
-          textBlocks[idx] = { ...textBlocks[idx], customFontSize: fontSize };
-        }
-      });
+    const newSlides = [...localSlides];
+    const slide = { ...newSlides[currentSlideIndex] };
+    const textBlocks = [...(slide.textBlocks || [])];
+    
+    // Check if any font size actually changed
+    let hasChanges = false;
+    selectedBlockIndices.forEach(idx => {
+      if (textBlocks[idx] && (textBlocks[idx].customFontSize !== fontSize)) {
+        textBlocks[idx] = { ...textBlocks[idx], customFontSize: fontSize };
+        hasChanges = true;
+      }
+    });
+    
+    if (hasChanges) {
       slide.textBlocks = textBlocks;
       newSlides[currentSlideIndex] = slide;
-      return newSlides;
-    });
-  }, [currentSlideIndex, selectedBlockIndices]);
+      saveToHistory(newSlides);
+    }
+  }, [currentSlideIndex, selectedBlockIndices, localSlides, saveToHistory]);
 
   // Batch update color for selected blocks
   const batchUpdateColor = useCallback((color: string) => {
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[currentSlideIndex] };
-      const textBlocks = [...(slide.textBlocks || [])];
-      selectedBlockIndices.forEach(idx => {
-        if (textBlocks[idx]) {
-          textBlocks[idx] = { ...textBlocks[idx], customColor: color };
-        }
-      });
+    const newSlides = [...localSlides];
+    const slide = { ...newSlides[currentSlideIndex] };
+    const textBlocks = [...(slide.textBlocks || [])];
+    
+    // Check if any color actually changed
+    let hasChanges = false;
+    selectedBlockIndices.forEach(idx => {
+      if (textBlocks[idx] && (textBlocks[idx].customColor !== color)) {
+        textBlocks[idx] = { ...textBlocks[idx], customColor: color };
+        hasChanges = true;
+      }
+    });
+    
+    if (hasChanges) {
       slide.textBlocks = textBlocks;
       newSlides[currentSlideIndex] = slide;
-      return newSlides;
-    });
-  }, [currentSlideIndex, selectedBlockIndices]);
+      saveToHistory(newSlides);
+    }
+  }, [currentSlideIndex, selectedBlockIndices, localSlides, saveToHistory]);
 
   // Delete selected blocks (text or images)
   const deleteSelectedBlocks = useCallback(() => {
@@ -634,7 +666,7 @@ export default function Step4Present({
     reader.readAsDataURL(file);
   }, [currentSlideIndex, localSlides, saveToHistory]);
 
-  // Update image position
+  // Update image position (immediate update, history saved on drag end)
   const updateImagePosition = useCallback((imageIndex: number, x: number, y: number) => {
     setLocalSlides(prev => {
       const newSlides = [...prev];
@@ -649,20 +681,27 @@ export default function Step4Present({
     });
   }, [currentSlideIndex]);
 
+  // Save image position change to history (called when drag ends)
+  const saveImagePositionToHistory = useCallback(() => {
+    saveToHistory(localSlides);
+  }, [localSlides, saveToHistory]);
+
   // Update image size
   const updateImageSize = useCallback((imageIndex: number, width: number) => {
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[currentSlideIndex] };
-      const imageBlocks = [...(slide.imageBlocks || [])];
-      if (imageBlocks[imageIndex]) {
+    const newSlides = [...localSlides];
+    const slide = { ...newSlides[currentSlideIndex] };
+    const imageBlocks = [...(slide.imageBlocks || [])];
+    
+    if (imageBlocks[imageIndex]) {
+      const oldWidth = imageBlocks[imageIndex].width_percent;
+      if (oldWidth !== width) {
         imageBlocks[imageIndex] = { ...imageBlocks[imageIndex], width_percent: width };
+        slide.imageBlocks = imageBlocks;
+        newSlides[currentSlideIndex] = slide;
+        saveToHistory(newSlides);
       }
-      slide.imageBlocks = imageBlocks;
-      newSlides[currentSlideIndex] = slide;
-      return newSlides;
-    });
-  }, [currentSlideIndex]);
+    }
+  }, [currentSlideIndex, localSlides, saveToHistory]);
 
   // Handle file drop
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -1124,6 +1163,7 @@ ${hasText ? (slide.textBlocks || []).map(block => {
                         onSelect={(e) => handleBlockSelect(blockIndex, e)}
                         onUpdateContent={(content) => updateTextBlockContent(currentSlideIndex, blockIndex, content)}
                         onUpdatePosition={(x, y) => updateTextBlockPosition(currentSlideIndex, blockIndex, x, y)}
+                        onDragEnd={saveTextBlockPositionToHistory}
                         containerRef={previewContainerRef}
                       />
                     ))}
@@ -1141,6 +1181,7 @@ ${hasText ? (slide.textBlocks || []).map(block => {
                         onSelect={(e) => handleImageSelect(imageIndex, e)}
                         onUpdatePosition={(x, y) => updateImagePosition(imageIndex, x, y)}
                         onUpdateSize={(width) => updateImageSize(imageIndex, width)}
+                        onDragEnd={saveImagePositionToHistory}
                         containerRef={previewContainerRef}
                       />
                     ))}
