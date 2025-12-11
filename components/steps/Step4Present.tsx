@@ -25,6 +25,7 @@ function generateId(): string {
 
 interface Step4PresentProps {
   appState: AppState;
+  updateState: (updates: Partial<AppState>) => void;
   onPrev: () => void;
   onRestart: () => void;
 }
@@ -390,6 +391,7 @@ function ResizableImageBlock({
 
 export default function Step4Present({ 
   appState, 
+  updateState,
   onPrev, 
   onRestart 
 }: Step4PresentProps) {
@@ -453,6 +455,19 @@ export default function Step4Present({
   // Can undo check
   const canUndo = historyIndex > 0;
 
+  // Sync local slides to global state before export
+  const syncAndExport = useCallback((exportFunction: () => void | Promise<void>) => {
+    // Sync the latest local slides to global state
+    updateState({ 
+      generatedSlides: localSlides 
+    });
+    
+    // Give state update some time to propagate
+    setTimeout(async () => {
+      await exportFunction();
+    }, 10);
+  }, [localSlides, updateState]);
+
   // Update text block content
   const updateTextBlockContent = useCallback((slideIndex: number, blockIndex: number, content: string) => {
     setLocalSlides(prev => {
@@ -479,31 +494,6 @@ export default function Step4Present({
     });
   }, []);
 
-  // Update text block font size
-  const updateTextBlockFontSize = useCallback((slideIndex: number, blockIndex: number, fontSize: number) => {
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[slideIndex] };
-      const textBlocks = [...(slide.textBlocks || [])];
-      textBlocks[blockIndex] = { ...textBlocks[blockIndex], customFontSize: fontSize };
-      slide.textBlocks = textBlocks;
-      newSlides[slideIndex] = slide;
-      return newSlides;
-    });
-  }, []);
-
-  // Update text block color
-  const updateTextBlockColor = useCallback((slideIndex: number, blockIndex: number, color: string) => {
-    setLocalSlides(prev => {
-      const newSlides = [...prev];
-      const slide = { ...newSlides[slideIndex] };
-      const textBlocks = [...(slide.textBlocks || [])];
-      textBlocks[blockIndex] = { ...textBlocks[blockIndex], customColor: color };
-      slide.textBlocks = textBlocks;
-      newSlides[slideIndex] = slide;
-      return newSlides;
-    });
-  }, []);
 
   // Batch update font size for selected blocks
   const batchUpdateFontSize = useCallback((fontSize: number) => {
@@ -746,44 +736,54 @@ export default function Step4Present({
   const downloadCurrentSlide = useCallback(async () => {
     if (!currentSlide) return;
     
-    setIsExporting(true);
-    try {
-      if (exportFormat === "png") {
-        await downloadSlideAsPNG(currentSlide, currentSlide.number);
-      } else if (exportFormat === "pdf") {
-        await downloadSlidesAsPDF([currentSlide]);
-      } else if (exportFormat === "pptx") {
-        await downloadSlidesAsPPTX([currentSlide]);
+    const actualExport = async () => {
+      setIsExporting(true);
+      try {
+        const currentSlideData = localSlides[currentSlideIndex];
+        if (exportFormat === "png") {
+          await downloadSlideAsPNG(currentSlideData, currentSlideData.number);
+        } else if (exportFormat === "pdf") {
+          await downloadSlidesAsPDF([currentSlideData]);
+        } else if (exportFormat === "pptx") {
+          await downloadSlidesAsPPTX([currentSlideData]);
+        }
+      } catch (error) {
+        console.error("Download failed:", error);
+        alert("下载失败，请重试");
+      } finally {
+        setIsExporting(false);
       }
-    } catch (error) {
-      console.error("Download failed:", error);
-      alert("下载失败，请重试");
-    } finally {
-      setIsExporting(false);
-    }
-  }, [currentSlide, exportFormat]);
+    };
+    
+    syncAndExport(actualExport);
+  }, [localSlides, currentSlideIndex, exportFormat, syncAndExport]);
 
   // Download all slides with selected format
   const downloadAllSlides = useCallback(async () => {
-    setIsExporting(true);
-    try {
-      if (exportFormat === "png") {
-        await downloadAllSlidesAsPNG(slides);
-      } else if (exportFormat === "pdf") {
-        await downloadSlidesAsPDF(slides);
-      } else if (exportFormat === "pptx") {
-        await downloadSlidesAsPPTX(slides);
+    const actualExport = async () => {
+      setIsExporting(true);
+      try {
+        if (exportFormat === "png") {
+          await downloadAllSlidesAsPNG(localSlides);
+        } else if (exportFormat === "pdf") {
+          await downloadSlidesAsPDF(localSlides);
+        } else if (exportFormat === "pptx") {
+          await downloadSlidesAsPPTX(localSlides);
+        }
+      } catch (error) {
+        console.error("Download failed:", error);
+        alert("下载失败，请重试");
+      } finally {
+        setIsExporting(false);
       }
-    } catch (error) {
-      console.error("Download failed:", error);
-      alert("下载失败，请重试");
-    } finally {
-      setIsExporting(false);
-    }
-  }, [slides, exportFormat]);
+    };
+    
+    syncAndExport(actualExport);
+  }, [localSlides, exportFormat, syncAndExport]);
 
   // Export as HTML with editable text overlay (uses clean images where available)
   const exportAsHTML = useCallback(() => {
+    const actualExport = () => {
     const htmlContent = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -817,7 +817,7 @@ export default function Step4Present({
 <body>
   <div class="reveal">
     <div class="slides">
-${slides.map((slide, index) => {
+${localSlides.map((slide, index) => {
   const imageUrl = slide.cleanPath || slide.enlarged || slide.path;
   const hasText = slide.cleanPath && slide.textBlocks && slide.textBlocks.length > 0;
   
@@ -860,7 +860,10 @@ ${hasText ? (slide.textBlocks || []).map(block => `
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [slides]);
+    };
+    
+    syncAndExport(actualExport);
+  }, [localSlides, syncAndExport]);
 
   // Fullscreen presentation mode
   if (isFullscreen) {

@@ -164,6 +164,7 @@ export default function Home() {
           {currentStep === 4 && (
             <Step4Present
               appState={appState}
+              updateState={updateState}
               onPrev={prevStep}
               onRestart={() => {
                 setCurrentStep(1);
