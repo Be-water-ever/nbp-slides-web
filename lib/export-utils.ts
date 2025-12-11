@@ -30,6 +30,25 @@ function getFontSizeInPt(size: string): number {
   }
 }
 
+// Get effective color (custom color takes priority)
+function getEffectiveColor(block: TextBlock): string {
+  return block.customColor || block.color || "#333333";
+}
+
+// Get effective font size in pixels (custom size takes priority)
+function getEffectiveFontSizePx(block: TextBlock): number {
+  return block.customFontSize || getFontSizeInPx(block.size);
+}
+
+// Get effective font size in points (custom size takes priority)
+function getEffectiveFontSizePt(block: TextBlock): number {
+  if (block.customFontSize) {
+    // Convert px to pt (approximate conversion)
+    return block.customFontSize * 0.75;
+  }
+  return getFontSizeInPt(block.size);
+}
+
 // Load image as HTMLImageElement
 async function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -84,11 +103,11 @@ export async function renderSlideToCanvas(
   // Draw text blocks (only if slide has cleanPath - meaning text was extracted)
   if (slide.cleanPath && slide.textBlocks && slide.textBlocks.length > 0) {
     for (const block of slide.textBlocks) {
-      const fontSize = getFontSizeInPx(block.size);
+      const fontSize = getEffectiveFontSizePx(block);
       const fontWeight = block.size === "large" ? "600" : "400";
       
       ctx.font = `${fontWeight} ${fontSize}px Inter, SF Pro Display, -apple-system, sans-serif`;
-      ctx.fillStyle = block.color || "#333333";
+      ctx.fillStyle = getEffectiveColor(block);
       ctx.textAlign = block.align as CanvasTextAlign || "center";
       ctx.textBaseline = "middle";
 
@@ -158,10 +177,10 @@ export async function exportSlidesAsPDF(slides: GeneratedSlide[]): Promise<Blob>
     // Add text blocks (only for slides with extracted text)
     if (slide.cleanPath && slide.textBlocks && slide.textBlocks.length > 0) {
       for (const block of slide.textBlocks) {
-        const fontSize = getFontSizeInPt(block.size) * 0.35; // Scale down for PDF
+        const fontSize = getEffectiveFontSizePt(block) * 0.35; // Scale down for PDF
         
         doc.setFontSize(fontSize);
-        doc.setTextColor(block.color || "#333333");
+        doc.setTextColor(getEffectiveColor(block));
 
         // Calculate position
         const textX = (block.x_percent / 100) * pageWidth;
@@ -216,7 +235,7 @@ export async function exportSlidesAsPPTX(slides: GeneratedSlide[]): Promise<Blob
     // Add text boxes (only for slides with extracted text)
     if (slide.cleanPath && slide.textBlocks && slide.textBlocks.length > 0) {
       for (const block of slide.textBlocks) {
-        const fontSize = getFontSizeInPt(block.size);
+        const fontSize = getEffectiveFontSizePt(block);
         const fontBold = block.size === "large";
         
         // Convert percentage position to inches (PPTX uses inches)
@@ -242,7 +261,7 @@ export async function exportSlidesAsPPTX(slides: GeneratedSlide[]): Promise<Blob
           h: boxHeight,
           fontSize: fontSize,
           fontFace: "Arial",
-          color: block.color?.replace("#", "") || "333333",
+          color: getEffectiveColor(block).replace("#", ""),
           bold: fontBold,
           align: block.align as "left" | "center" | "right" || "center",
           valign: "middle",

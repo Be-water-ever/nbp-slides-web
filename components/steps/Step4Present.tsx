@@ -825,12 +825,17 @@ ${localSlides.map((slide, index) => {
       <section>
         <div class="slide-container">
           <img class="slide-bg" src="${imageUrl}" alt="Slide ${index + 1}">
-${hasText ? (slide.textBlocks || []).map(block => `
+${hasText ? (slide.textBlocks || []).map(block => {
+  const effectiveColor = block.customColor || block.color;
+  const effectiveFontSize = block.customFontSize;
+  const fontSizeStyle = effectiveFontSize ? `font-size:${effectiveFontSize}px;` : '';
+  return `
           <div class="text-block text-${block.size}" contenteditable="true"
-               style="left:${block.x_percent}%;top:${block.y_percent}%;width:${block.width_percent}%;color:${block.color};text-align:${block.align};">
+               style="left:${block.x_percent}%;top:${block.y_percent}%;width:${block.width_percent}%;color:${effectiveColor};text-align:${block.align};${fontSizeStyle}">
             ${block.content}
           </div>
-`).join('') : ''}
+`;
+}).join('') : ''}
         </div>
       </section>
 `;
