@@ -263,12 +263,14 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
             <button
               onClick={() => startGeneration({ keepExisting: true })}
               className="btn-secondary flex items-center gap-2"
+              title="保留现有页，只为新增编号/Upload 补齐"
             >
               追加/更新大纲
             </button>
             <button
               onClick={() => startGeneration({ keepExisting: false })}
               className="btn-secondary flex items-center gap-2"
+              title="清空现有结果，按当前大纲全量重跑"
             >
               重新全量生成
             </button>
