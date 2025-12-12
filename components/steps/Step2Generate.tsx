@@ -259,21 +259,29 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
           <span className="text-sm text-white/60">
             已有 {effectiveSlides.length} 页，可追加生成或全量重跑
           </span>
-          <div className="flex gap-3 flex-wrap">
-            <button
-              onClick={() => startGeneration({ keepExisting: true })}
-              className="btn-secondary flex items-center gap-2"
-              title="保留现有页，只为新增编号/Upload 补齐"
-            >
-              追加/更新大纲
-            </button>
-            <button
-              onClick={() => startGeneration({ keepExisting: false })}
-              className="btn-secondary flex items-center gap-2"
-              title="清空现有结果，按当前大纲全量重跑"
-            >
-              重新全量生成
-            </button>
+          <div className="flex gap-4 flex-wrap items-start">
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => startGeneration({ keepExisting: true })}
+                className="btn-secondary flex items-center gap-2"
+              >
+                追加/更新大纲
+              </button>
+              <span className="text-xs text-white/50">
+                保留已生成，仅补新增编号/Upload
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => startGeneration({ keepExisting: false })}
+                className="btn-secondary flex items-center gap-2"
+              >
+                重新全量生成
+              </button>
+              <span className="text-xs text-white/50">
+                清空现有结果，按大纲全量重跑
+              </span>
+            </div>
           </div>
         </div>
       )}
