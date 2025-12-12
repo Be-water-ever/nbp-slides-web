@@ -133,6 +133,7 @@ export default function Home() {
             steps={WORKFLOW_STEPS} 
             currentStep={currentStep} 
             onStepClick={goToStep}
+            allowFutureSteps={appState.generatedSlides.length > 0}
           />
         </div>
 
@@ -186,4 +187,3 @@ export default function Home() {
     </main>
   );
 }
-

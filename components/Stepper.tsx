@@ -12,16 +12,18 @@ interface StepperProps {
   steps: Step[];
   currentStep: number;
   onStepClick?: (step: number) => void;
+  // Allow clicking into future steps when upstream logic permits
+  allowFutureSteps?: boolean;
 }
 
-export default function Stepper({ steps, currentStep, onStepClick }: StepperProps) {
+export default function Stepper({ steps, currentStep, onStepClick, allowFutureSteps }: StepperProps) {
   return (
     <nav className="w-full mb-8">
       <ol className="flex items-center justify-between">
         {steps.map((step, index) => {
           const isCompleted = currentStep > step.id;
           const isCurrent = currentStep === step.id;
-          const isClickable = onStepClick && (isCompleted || step.id === currentStep);
+          const isClickable = onStepClick && (allowFutureSteps || isCompleted || step.id === currentStep);
           
           return (
             <li 
@@ -113,6 +115,5 @@ export const WORKFLOW_STEPS: Step[] = [
     description: "演示 & 下载",
   },
 ];
-
 
 

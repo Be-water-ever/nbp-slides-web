@@ -52,21 +52,33 @@ export default function Step2Generate({
   const totalSlides = getSlideCount(appState.outline);
 
   // Generate slides one by one
-  const startGeneration = useCallback(async () => {
+  const startGeneration = useCallback(async (options?: { keepExisting?: boolean }) => {
+    const keepExisting = options?.keepExisting ?? false;
     abortRef.current = false;
+
+    const baseSlides = keepExisting ? (appState.generatedSlides || []) : [];
+    const existingMap = new Map(baseSlides.map((s) => [s.number, s]));
+
+    // If we're doing a full rebuild, clear upstream state to reflect the pending run
+    if (!keepExisting) {
+      updateState({ generatedSlides: [] });
+    }
+
     setProgress(prev => ({ 
       ...prev, 
       status: "generating", 
       error: undefined,
       completedSlides: 0,
+      currentSlideTitle: "",
     }));
-    setGeneratedSlides([]);
+    setGeneratedSlides(baseSlides);
 
     // Parse outline to get individual slides
     const slides = parseOutline(appState.outline, 1, 99);
     setProgress(prev => ({ ...prev, totalSlides: slides.length }));
 
-    const newSlides: GeneratedSlide[] = [];
+    let newSlides: GeneratedSlide[] = [...baseSlides];
+    let completedCount = 0;
 
     for (let i = 0; i < slides.length; i++) {
       if (abortRef.current) {
@@ -75,6 +87,17 @@ export default function Step2Generate({
       }
 
       const slide = slides[i];
+
+      // If keeping existing and this slide already exists, skip regeneration
+      if (keepExisting && existingMap.has(slide.number)) {
+        completedCount += 1;
+        setProgress(prev => ({
+          ...prev,
+          completedSlides: completedCount,
+        }));
+        continue;
+      }
+
       setProgress(prev => ({ 
         ...prev, 
         currentSlideTitle: slide.title || `幻灯片 ${i + 1}`,
@@ -89,13 +112,15 @@ export default function Step2Generate({
             path: slide.uploadUrl,
             textBlocks: [], // No OCR for uploaded slides initially
           };
+          newSlides = newSlides.filter((s) => s.number !== slide.number);
           newSlides.push(newSlide);
           setGeneratedSlides([...newSlides]);
           
           setProgress(prev => ({
             ...prev,
-            completedSlides: prev.completedSlides + 1,
+            completedSlides: completedCount + 1,
           }));
+          completedCount += 1;
           
           console.log(`Slide ${slide.number}: Using uploaded image`);
           continue; // Skip to next slide
@@ -147,31 +172,37 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
             path: result.image_url,
             textBlocks: result.text_blocks || [],
           };
+          newSlides = newSlides.filter((s) => s.number !== slide.number);
           newSlides.push(newSlide);
           setGeneratedSlides([...newSlides]);
           
           setProgress(prev => ({
             ...prev,
-            completedSlides: prev.completedSlides + 1,
+            completedSlides: completedCount + 1,
           }));
+          completedCount += 1;
         } else {
           // Slide failed but continue with others
           console.error(`Slide ${slide.number} failed:`, result.error);
           setProgress(prev => ({
             ...prev,
-            completedSlides: prev.completedSlides + 1,
+            completedSlides: completedCount + 1,
             error: `第 ${slide.number} 页生成失败: ${result.error}`,
           }));
+          completedCount += 1;
         }
       } catch (err) {
         console.error(`Error generating slide ${slide.number}:`, err);
         setProgress(prev => ({
           ...prev,
-          completedSlides: prev.completedSlides + 1,
+          completedSlides: completedCount + 1,
           error: `第 ${slide.number} 页生成失败: ${err instanceof Error ? err.message : "网络错误"}`,
         }));
+        completedCount += 1;
       }
     }
+
+    newSlides = newSlides.sort((a, b) => a.number - b.number);
 
     // All done
     setProgress(prev => ({ 
@@ -197,7 +228,13 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
   const isGenerating = progress.status === "generating";
   const isComplete = progress.status === "completed";
   const isFailed = progress.status === "failed";
-  const canProceed = isComplete && generatedSlides.length > 0;
+  const effectiveSlides = isGenerating
+    ? generatedSlides
+    : (generatedSlides.length > 0 ? generatedSlides : (appState.generatedSlides || []));
+  const canProceed = !isGenerating && effectiveSlides.length > 0;
+  const hasSlides = effectiveSlides.length > 0;
+  const slidesToShow = effectiveSlides;
+  const canShowRegenControls = !isGenerating && hasSlides;
 
   return (
     <div className="h-full flex flex-col">
@@ -206,16 +243,38 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
         <h2 className="text-2xl font-semibold mb-2">生成幻灯片</h2>
         <p className="text-white/60">
           {isGenerating 
-            ? `正在生成: ${progress.currentSlideTitle || "准备中..."}` 
+            ? `正在生成: ${progress.currentSlideTitle || "准备中..."}`
             : isFailed
               ? "生成失败，请检查错误信息并重试"
-              : isComplete && generatedSlides.length > 0
-                ? `成功生成 ${generatedSlides.length} 页幻灯片！`
-                : isComplete && generatedSlides.length === 0
+              : isComplete && effectiveSlides.length > 0
+                ? `成功生成 ${effectiveSlides.length} 页幻灯片！`
+                : isComplete && effectiveSlides.length === 0
                   ? "生成完成但没有幻灯片，请检查配置"
                   : `准备生成 ${totalSlides} 页幻灯片`}
         </p>
       </div>
+
+      {canShowRegenControls && (
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <span className="text-sm text-white/60">
+            已有 {effectiveSlides.length} 页，可追加生成或全量重跑
+          </span>
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={() => startGeneration({ keepExisting: true })}
+              className="btn-secondary flex items-center gap-2"
+            >
+              追加/更新大纲
+            </button>
+            <button
+              onClick={() => startGeneration({ keepExisting: false })}
+              className="btn-secondary flex items-center gap-2"
+            >
+              重新全量生成
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
@@ -259,10 +318,10 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
         )}
 
         {/* Slides Preview Grid */}
-        {generatedSlides.length > 0 ? (
+        {slidesToShow.length > 0 ? (
           <div className="flex-1 overflow-auto">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {generatedSlides.map((slide) => (
+              {slidesToShow.map((slide) => (
                 <div 
                   key={slide.number}
                   className="aspect-video bg-white/5 rounded-xl overflow-hidden relative group"
@@ -303,7 +362,7 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
           /* Start Generation Button */
           <div className="flex-1 flex items-center justify-center">
             <button
-              onClick={startGeneration}
+              onClick={() => startGeneration({ keepExisting: false })}
               className="flex flex-col items-center gap-4 p-8 rounded-2xl glass-panel glass-panel-hover cursor-pointer transition-all hover:scale-105"
             >
               <div className="w-20 h-20 rounded-full accent-gradient flex items-center justify-center animate-pulse-glow">
@@ -346,9 +405,9 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
         </button>
 
         <div className="flex gap-3">
-          {(progress.error || isFailed || (isComplete && generatedSlides.length === 0)) && (
+          {(progress.error || isFailed || (isComplete && effectiveSlides.length === 0)) && (
             <button
-              onClick={startGeneration}
+              onClick={() => startGeneration({ keepExisting: true })}
               className="btn-secondary flex items-center gap-2"
             >
               <RefreshIcon className="w-5 h-5" />
