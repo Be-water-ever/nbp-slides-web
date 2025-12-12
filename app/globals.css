@@ -75,6 +75,7 @@ body {
   @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  justify-content: center;
 }
 
 .btn-secondary:hover {
