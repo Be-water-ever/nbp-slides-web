@@ -68,8 +68,8 @@ export default function Stepper({ steps, currentStep, onStepClick }: StepperProp
               {/* Connector line */}
               {index < steps.length - 1 && (
                 <div 
-                  className="absolute top-6 left-1/2 w-full h-0.5 -z-0"
-                  style={{ transform: "translateX(50%)" }}
+                  className="absolute top-[22px] h-0.5 -z-0"
+                  style={{ transform: "translateX(50%)", width: "240px", left: "62px" }}
                 >
                   <div 
                     className={`
