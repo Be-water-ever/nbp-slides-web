@@ -66,24 +66,6 @@ export default function Stepper({ steps, currentStep, onStepClick, allowFutureSt
                   </p>
                 </div>
               </div>
-              
-              {/* Connector line */}
-              {index < steps.length - 1 && (
-                <div 
-                  className="absolute top-[22px] h-0.5 -z-0"
-                  style={{ transform: "translateX(50%)", width: "240px", left: "62px" }}
-                >
-                  <div 
-                    className={`
-                      h-full transition-all duration-500
-                      ${isCompleted 
-                        ? "bg-gradient-to-r from-accent-blue to-accent-purple" 
-                        : "bg-glass-border"
-                      }
-                    `}
-                  />
-                </div>
-              )}
             </li>
           );
         })}
