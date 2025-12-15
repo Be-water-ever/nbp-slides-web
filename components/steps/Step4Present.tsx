@@ -188,53 +188,55 @@ function DraggableTextBlock({
   };
 
   return (
-    <div
-      ref={textRef}
-      contentEditable={isEditing}
-      suppressContentEditableWarning
-      onMouseDown={handleMouseDown}
-      onClick={(e) => e.stopPropagation()}
-      onDoubleClick={handleDoubleClick}
-      onBlur={handleBlur}
-      className={`absolute select-none ${
-        isResizing
-          ? "cursor-ew-resize"
-          : isDragging
-            ? "cursor-grabbing"
-            : "cursor-grab"
-      } ${
-        isSelected 
-          ? "outline outline-2 outline-accent-blue shadow-lg" 
-          : "hover:outline hover:outline-1 hover:outline-white/50"
-      } ${
-        isEditing ? "cursor-text bg-black/20 rounded px-2" : ""
-      }`}
-      style={{
-        left: `${block.x_percent}%`,
-        top: `${block.y_percent}%`,
-        width: `${block.width_percent}%`,
-        transform: "translate(-50%, -50%)",
-        fontSize: `${fontSize}px`,
-        color: color,
-        textAlign: block.align as "left" | "center" | "right" || "center",
-        fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif",
-        fontWeight: block.size === "large" ? 600 : 400,
-        lineHeight: 1.3,
-        textShadow: "0 1px 3px rgba(0,0,0,0.1)",
-        whiteSpace: "pre-wrap",
-        zIndex: isSelected ? 10 : 1,
-      }}
-    >
-      {block.content}
-    </div>
-
-    {isSelected && showResizeHandle && (
+    <>
       <div
-        onMouseDown={handleResizeMouseDown}
-        className="absolute bottom-0 right-0 w-3 h-3 bg-accent-blue cursor-ew-resize transform translate-x-1/2 translate-y-1/2 rounded-sm"
-        style={{ zIndex: isSelected ? 11 : 2 }}
-      />
-    )}
+        ref={textRef}
+        contentEditable={isEditing}
+        suppressContentEditableWarning
+        onMouseDown={handleMouseDown}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={handleDoubleClick}
+        onBlur={handleBlur}
+        className={`absolute select-none ${
+          isResizing
+            ? "cursor-ew-resize"
+            : isDragging
+              ? "cursor-grabbing"
+              : "cursor-grab"
+        } ${
+          isSelected 
+            ? "outline outline-2 outline-accent-blue shadow-lg" 
+            : "hover:outline hover:outline-1 hover:outline-white/50"
+        } ${
+          isEditing ? "cursor-text bg-black/20 rounded px-2" : ""
+        }`}
+        style={{
+          left: `${block.x_percent}%`,
+          top: `${block.y_percent}%`,
+          width: `${block.width_percent}%`,
+          transform: "translate(-50%, -50%)",
+          fontSize: `${fontSize}px`,
+          color: color,
+          textAlign: block.align as "left" | "center" | "right" || "center",
+          fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif",
+          fontWeight: block.size === "large" ? 600 : 400,
+          lineHeight: 1.3,
+          textShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          whiteSpace: "pre-wrap",
+          zIndex: isSelected ? 10 : 1,
+        }}
+      >
+        {block.content}
+      </div>
+
+      {isSelected && showResizeHandle && (
+        <div
+          onMouseDown={handleResizeMouseDown}
+          className="absolute bottom-0 right-0 w-3 h-3 bg-accent-blue cursor-ew-resize transform translate-x-1/2 translate-y-1/2 rounded-sm"
+          style={{ zIndex: isSelected ? 11 : 2 }}
+        />
+      )}
+    </>
   );
 }
 
