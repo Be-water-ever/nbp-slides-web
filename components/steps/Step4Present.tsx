@@ -63,6 +63,7 @@ function DraggableTextBlock({
   onUpdateWidth,
   onResizeEnd,
   containerRef,
+  showResizeHandle,
 }: { 
   block: TextBlock;
   blockIndex: number;
@@ -74,6 +75,7 @@ function DraggableTextBlock({
   onUpdateWidth: (width: number) => void;
   onResizeEnd?: () => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  showResizeHandle: boolean;
 }) {
   const textRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -225,13 +227,16 @@ function DraggableTextBlock({
     >
       {block.content}
 
-      {isSelected && (
-        <div
-          onMouseDown={handleResizeMouseDown}
-          className="absolute bottom-0 right-0 w-3 h-3 bg-accent-blue cursor-ew-resize transform translate-x-1/2 translate-y-1/2 rounded-sm"
-        />
-      )}
+      {/* Resize handle stays outside editable content */}
     </div>
+
+    {isSelected && showResizeHandle && (
+      <div
+        onMouseDown={handleResizeMouseDown}
+        className="absolute bottom-0 right-0 w-3 h-3 bg-accent-blue cursor-ew-resize transform translate-x-1/2 translate-y-1/2 rounded-sm"
+        style={{ zIndex: (isSelected ? 11 : 2) }}
+      />
+    )}
   );
 }
 
@@ -1240,6 +1245,7 @@ ${hasText ? (slide.textBlocks || []).map(block => {
                         onDragEnd={saveTextBlockPositionToHistory}
                         onUpdateWidth={(width) => updateTextBlockWidth(currentSlideIndex, blockIndex, width)}
                         onResizeEnd={saveTextBlockWidthToHistory}
+                        showResizeHandle={!editMode ? false : true}
                         containerRef={previewContainerRef}
                       />
                     ))}
