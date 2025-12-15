@@ -13,7 +13,7 @@ import {
 
 interface Step3EnlargeProps {
   appState: AppState;
-  updateState: (updates: Partial<AppState>) => void;
+  updateState: (updates: Partial<AppState> | ((prev: AppState) => Partial<AppState>)) => void;
   onNext: () => void;
   onPrev: () => void;
 }
@@ -71,11 +71,11 @@ export default function Step3Enlarge({
 
       const { enlargedPath } = await response.json();
 
-      updateState({
-        generatedSlides: appState.generatedSlides.map((s) =>
+      updateState((prev) => ({
+        generatedSlides: prev.generatedSlides.map((s) =>
           s.number === slide.number ? { ...s, enlarged: enlargedPath } : s
         ),
-      });
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -107,8 +107,8 @@ export default function Step3Enlarge({
         throw new Error(result.error || "Text extraction failed");
       }
 
-      updateState({
-        generatedSlides: appState.generatedSlides.map((s) =>
+      updateState((prev) => ({
+        generatedSlides: prev.generatedSlides.map((s) =>
           s.number === slide.number 
             ? { 
                 ...s, 
@@ -117,7 +117,7 @@ export default function Step3Enlarge({
               } 
             : s
         ),
-      });
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {

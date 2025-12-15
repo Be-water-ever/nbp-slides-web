@@ -51,6 +51,8 @@ export interface AppState {
   currentJobId: string | null;
 }
 
+export type AppStateUpdate = Partial<AppState> | ((prev: AppState) => Partial<AppState>);
+
 const DEFAULT_OUTLINE = `# Slide Outline
 
 #### Slide 1: Title
@@ -96,8 +98,11 @@ export default function Home() {
     currentJobId: null,
   });
 
-  const updateState = useCallback((updates: Partial<AppState>) => {
-    setAppState((prev) => ({ ...prev, ...updates }));
+  const updateState = useCallback((updates: AppStateUpdate) => {
+    setAppState((prev) => {
+      const next = typeof updates === "function" ? updates(prev) : updates;
+      return { ...prev, ...next };
+    });
   }, []);
 
   const goToStep = useCallback((step: number) => {

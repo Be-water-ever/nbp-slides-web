@@ -13,7 +13,7 @@ import { parseOutline, getSlideCount } from "@/lib/parse-outline";
 
 interface Step2GenerateProps {
   appState: AppState;
-  updateState: (updates: Partial<AppState>) => void;
+  updateState: (updates: Partial<AppState> | ((prev: AppState) => Partial<AppState>)) => void;
   onNext: () => void;
   onPrev: () => void;
 }

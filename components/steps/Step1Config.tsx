@@ -9,7 +9,7 @@ import { getShortName, isShortName } from "@/lib/asset-mapping";
 
 interface Step1ConfigProps {
   appState: AppState;
-  updateState: (updates: Partial<AppState>) => void;
+  updateState: (updates: Partial<AppState> | ((prev: AppState) => Partial<AppState>)) => void;
   onNext: () => void;
 }
 

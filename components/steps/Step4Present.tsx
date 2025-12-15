@@ -25,7 +25,7 @@ function generateId(): string {
 
 interface Step4PresentProps {
   appState: AppState;
-  updateState: (updates: Partial<AppState>) => void;
+  updateState: (updates: Partial<AppState> | ((prev: AppState) => Partial<AppState>)) => void;
   onPrev: () => void;
   onRestart: () => void;
 }
