@@ -188,7 +188,16 @@ function DraggableTextBlock({
   };
 
   return (
-    <>
+    <div
+      className="absolute"
+      style={{
+        left: `${block.x_percent}%`,
+        top: `${block.y_percent}%`,
+        width: `${block.width_percent}%`,
+        transform: "translate(-50%, -50%)",
+        zIndex: isSelected ? 10 : 1,
+      }}
+    >
       <div
         ref={textRef}
         contentEditable={isEditing}
@@ -197,7 +206,7 @@ function DraggableTextBlock({
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={handleDoubleClick}
         onBlur={handleBlur}
-        className={`absolute select-none ${
+        className={`select-none w-full ${
           isResizing
             ? "cursor-ew-resize"
             : isDragging
@@ -211,19 +220,14 @@ function DraggableTextBlock({
           isEditing ? "cursor-text bg-black/20 rounded px-2" : ""
         }`}
         style={{
-          left: `${block.x_percent}%`,
-          top: `${block.y_percent}%`,
-          width: `${block.width_percent}%`,
-          transform: "translate(-50%, -50%)",
           fontSize: `${fontSize}px`,
           color: color,
-          textAlign: block.align as "left" | "center" | "right" || "center",
+          textAlign: (block.align as "left" | "center" | "right") || "center",
           fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif",
           fontWeight: block.size === "large" ? 600 : 400,
           lineHeight: 1.3,
           textShadow: "0 1px 3px rgba(0,0,0,0.1)",
           whiteSpace: "pre-wrap",
-          zIndex: isSelected ? 10 : 1,
         }}
       >
         {block.content}
@@ -236,7 +240,7 @@ function DraggableTextBlock({
           style={{ zIndex: isSelected ? 11 : 2 }}
         />
       )}
-    </>
+    </div>
   );
 }
 
