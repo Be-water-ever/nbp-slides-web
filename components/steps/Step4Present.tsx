@@ -60,6 +60,8 @@ function DraggableTextBlock({
   onUpdateContent,
   onUpdatePosition,
   onDragEnd,
+  onUpdateWidth,
+  onResizeEnd,
   containerRef,
 }: { 
   block: TextBlock;
@@ -69,12 +71,16 @@ function DraggableTextBlock({
   onUpdateContent: (content: string) => void;
   onUpdatePosition: (x: number, y: number) => void;
   onDragEnd?: () => void;
+  onUpdateWidth: (width: number) => void;
+  onResizeEnd?: () => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const textRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0, blockX: 0, blockY: 0 });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef({ x: 0, width: block.width_percent });
 
   const fontSize = block.customFontSize || getFontSizePx(block.size);
   const color = block.customColor || block.color || "#333333";
@@ -125,6 +131,46 @@ function DraggableTextBlock({
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
+  // Resize handlers
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(e);
+    setIsResizing(true);
+    resizeStartRef.current = {
+      x: e.clientX,
+      width: block.width_percent,
+    };
+  };
+
+  const handleResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const deltaX = ((e.clientX - resizeStartRef.current.x) / rect.width) * 100;
+    const newWidth = Math.max(10, Math.min(100, resizeStartRef.current.width + deltaX));
+    onUpdateWidth(newWidth);
+  }, [isResizing, containerRef, onUpdateWidth]);
+
+  const handleResizeMouseUp = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      if (onResizeEnd) {
+        onResizeEnd();
+      }
+    }
+  }, [isResizing, onResizeEnd]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener("mousemove", handleResizeMouseMove);
+      window.addEventListener("mouseup", handleResizeMouseUp);
+      return () => {
+        window.removeEventListener("mousemove", handleResizeMouseMove);
+        window.removeEventListener("mouseup", handleResizeMouseUp);
+      };
+    }
+  }, [isResizing, handleResizeMouseMove, handleResizeMouseUp]);
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsEditing(true);
@@ -149,7 +195,11 @@ function DraggableTextBlock({
       onDoubleClick={handleDoubleClick}
       onBlur={handleBlur}
       className={`absolute select-none ${
-        isDragging ? "cursor-grabbing" : "cursor-grab"
+        isResizing
+          ? "cursor-ew-resize"
+          : isDragging
+            ? "cursor-grabbing"
+            : "cursor-grab"
       } ${
         isSelected 
           ? "outline outline-2 outline-accent-blue shadow-lg" 
@@ -174,6 +224,13 @@ function DraggableTextBlock({
       }}
     >
       {block.content}
+
+      {isSelected && (
+        <div
+          onMouseDown={handleResizeMouseDown}
+          className="absolute bottom-0 right-0 w-3 h-3 bg-accent-blue cursor-ew-resize transform translate-x-1/2 translate-y-1/2 rounded-sm"
+        />
+      )}
     </div>
   );
 }
@@ -513,6 +570,23 @@ export default function Step4Present({
 
   // Save position change to history (called when drag ends)
   const saveTextBlockPositionToHistory = useCallback(() => {
+    saveToHistory(localSlides);
+  }, [localSlides, saveToHistory]);
+
+  // Update text block width (immediate), history saved on resize end
+  const updateTextBlockWidth = useCallback((slideIndex: number, blockIndex: number, width: number) => {
+    setLocalSlides(prev => {
+      const newSlides = [...prev];
+      const slide = { ...newSlides[slideIndex] };
+      const textBlocks = [...(slide.textBlocks || [])];
+      textBlocks[blockIndex] = { ...textBlocks[blockIndex], width_percent: width };
+      slide.textBlocks = textBlocks;
+      newSlides[slideIndex] = slide;
+      return newSlides;
+    });
+  }, []);
+
+  const saveTextBlockWidthToHistory = useCallback(() => {
     saveToHistory(localSlides);
   }, [localSlides, saveToHistory]);
 
@@ -1164,6 +1238,8 @@ ${hasText ? (slide.textBlocks || []).map(block => {
                         onUpdateContent={(content) => updateTextBlockContent(currentSlideIndex, blockIndex, content)}
                         onUpdatePosition={(x, y) => updateTextBlockPosition(currentSlideIndex, blockIndex, x, y)}
                         onDragEnd={saveTextBlockPositionToHistory}
+                        onUpdateWidth={(width) => updateTextBlockWidth(currentSlideIndex, blockIndex, width)}
+                        onResizeEnd={saveTextBlockWidthToHistory}
                         containerRef={previewContainerRef}
                       />
                     ))}
