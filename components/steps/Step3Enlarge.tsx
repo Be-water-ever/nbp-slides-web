@@ -97,7 +97,7 @@ export default function Step3Enlarge({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiKey: appState.apiKey,
-          imageUrl: slide.path,
+          imageUrl: slide.enlarged || slide.path,
         }),
       });
 
@@ -145,13 +145,13 @@ export default function Step3Enlarge({
     setProcessingType(null);
   }, [appState.generatedSlides, selectedSlides, enlargeSlide]);
 
-  // Process all selected slides for text extraction
+  // Process all selected slides for text extraction (allow re-extract)
   const extractTextFromSelected = useCallback(async () => {
     setError(null);
     setProcessingType("extract");
     
     const slidesToProcess = appState.generatedSlides.filter(
-      (s) => selectedSlides.has(s.number) && !s.cleanPath
+      (s) => selectedSlides.has(s.number)
     );
 
     for (const slide of slidesToProcess) {
