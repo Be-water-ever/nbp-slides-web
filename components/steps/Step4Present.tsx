@@ -14,7 +14,6 @@ import {
 import {
   downloadSlideAsPNG,
   downloadAllSlidesAsPNG,
-  downloadSlidesAsPDF,
   downloadSlidesAsPPTX,
 } from "@/lib/export-utils";
 
@@ -30,7 +29,7 @@ interface Step4PresentProps {
   onRestart: () => void;
 }
 
-type DownloadFormat = "png" | "pdf" | "pptx";
+type DownloadFormat = "png" | "pptx";
 
 // Helper to get font size from OCR size label (returns px value)
 function getFontSizePx(size: string): number {
@@ -864,8 +863,6 @@ export default function Step4Present({
         const currentSlideData = localSlides[currentSlideIndex];
         if (exportFormat === "png") {
           await downloadSlideAsPNG(currentSlideData, currentSlideData.number);
-        } else if (exportFormat === "pdf") {
-          await downloadSlidesAsPDF([currentSlideData]);
         } else if (exportFormat === "pptx") {
           await downloadSlidesAsPPTX([currentSlideData]);
         }
@@ -887,8 +884,6 @@ export default function Step4Present({
       try {
         if (exportFormat === "png") {
           await downloadAllSlidesAsPNG(localSlides);
-        } else if (exportFormat === "pdf") {
-          await downloadSlidesAsPDF(localSlides);
         } else if (exportFormat === "pptx") {
           await downloadSlidesAsPPTX(localSlides);
         }
@@ -1381,7 +1376,7 @@ ${hasText ? (slide.textBlocks || []).map(block => {
             <div className="mb-3">
               <label className="text-xs text-white/60 mb-1 block">选择格式</label>
               <div className="flex gap-1">
-                {(["png", "pdf", "pptx"] as DownloadFormat[]).map((format) => (
+                {(["png", "pptx"] as DownloadFormat[]).map((format) => (
                   <button
                     key={format}
                     onClick={() => setExportFormat(format)}
@@ -1397,7 +1392,6 @@ ${hasText ? (slide.textBlocks || []).map(block => {
               </div>
               <p className="text-xs text-white/40 mt-1">
                 {exportFormat === "png" && "合成图片（含编辑后文字）"}
-                {exportFormat === "pdf" && "文字可选中/复制"}
                 {exportFormat === "pptx" && "文字可编辑"}
               </p>
             </div>

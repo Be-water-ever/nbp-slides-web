@@ -60,7 +60,7 @@ export default function Step3Enlarge({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiKey: appState.apiKey,
-          imageUrl: slide.path,
+          imageUrl: slide.enlarged || slide.path,
         }),
       });
 

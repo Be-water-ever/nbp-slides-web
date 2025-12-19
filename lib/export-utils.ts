@@ -4,7 +4,8 @@
 
 import { GeneratedSlide, TextBlock } from "@/app/page";
 
-// Slide dimensions (16:9 aspect ratio)
+// Baseline slide dimensions (16:9) for scaling font sizes.
+// Actual export resolution follows the underlying image pixels.
 const SLIDE_WIDTH = 1920;
 const SLIDE_HEIGHT = 1080;
 
@@ -35,9 +36,10 @@ function getEffectiveColor(block: TextBlock): string {
   return block.customColor || block.color || "#333333";
 }
 
-// Get effective font size in pixels (custom size takes priority)
-function getEffectiveFontSizePx(block: TextBlock): number {
-  return block.customFontSize || getFontSizeInPx(block.size);
+// Get effective font size in pixels (custom size takes priority), scaled for export resolution
+function getEffectiveFontSizePx(block: TextBlock, scaleFactor: number): number {
+  const baseSize = block.customFontSize || getFontSizeInPx(block.size);
+  return Math.max(8, Math.round(baseSize * scaleFactor));
 }
 
 // Get effective font size in points (custom size takes priority)
@@ -82,28 +84,30 @@ export async function renderSlideToCanvas(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Failed to get canvas context");
 
-  canvas.width = SLIDE_WIDTH;
-  canvas.height = SLIDE_HEIGHT;
-
   // Get the best image URL (clean > enlarged > original)
   const imageUrl = slide.cleanPath || slide.enlarged || slide.path;
 
   // Draw background image
   const img = await loadImage(imageUrl);
-  
-  // Calculate scaling to fit canvas while maintaining aspect ratio
-  const scale = Math.min(SLIDE_WIDTH / img.width, SLIDE_HEIGHT / img.height);
-  const x = (SLIDE_WIDTH - img.width * scale) / 2;
-  const y = (SLIDE_HEIGHT - img.height * scale) / 2;
-  
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
-  ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+  const targetWidth = img.naturalWidth || img.width;
+  const targetHeight = img.naturalHeight || img.height;
+  if (!targetWidth || !targetHeight) {
+    throw new Error("Failed to determine image dimensions for export");
+  }
+
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  // Scale fonts relative to baseline so 4K exports don't shrink text visually.
+  const scaleFactor = canvas.width / SLIDE_WIDTH;
 
   // Draw text blocks (only if slide has cleanPath - meaning text was extracted)
   if (slide.cleanPath && slide.textBlocks && slide.textBlocks.length > 0) {
     for (const block of slide.textBlocks) {
-      const fontSize = getEffectiveFontSizePx(block);
+      const fontSize = getEffectiveFontSizePx(block, scaleFactor);
       const fontWeight = block.size === "large" ? "600" : "400";
       
       ctx.font = `${fontWeight} ${fontSize}px Inter, SF Pro Display, -apple-system, sans-serif`;
@@ -112,8 +116,8 @@ export async function renderSlideToCanvas(
       ctx.textBaseline = "middle";
 
       // Calculate position (percentage to pixels)
-      const textX = (block.x_percent / 100) * SLIDE_WIDTH;
-      const textY = (block.y_percent / 100) * SLIDE_HEIGHT;
+      const textX = (block.x_percent / 100) * canvas.width;
+      const textY = (block.y_percent / 100) * canvas.height;
 
       // Handle multiline text
       const lines = block.content.split("\n");
