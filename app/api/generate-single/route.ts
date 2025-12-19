@@ -98,7 +98,10 @@ export interface GenerateSingleResponse {
 export async function POST(request: NextRequest): Promise<NextResponse<GenerateSingleResponse>> {
   try {
     const body = await request.json();
-    const { apiKey, prompt, assetUrls } = body;
+    const { apiKey, prompt, assetUrls, imageSize } = body;
+
+    const normalizedImageSize: "1K" | "2K" | "4K" =
+      imageSize === "2K" || imageSize === "4K" ? imageSize : "1K";
 
     if (!apiKey || apiKey.length < 20) {
       return NextResponse.json(
@@ -126,6 +129,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateS
             api_key: apiKey,
             prompt: prompt,
             aspect_ratio: "16:9",
+            image_size: normalizedImageSize,
             asset_urls: assetUrls && assetUrls.length > 0 
               ? assetUrls.filter((p: string) => p.startsWith("http")) 
               : undefined,
@@ -158,7 +162,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateS
         // 直接调用适配器
         const geminiResult = await generateImageWithAutoDetect(apiKey, prompt, {
           aspectRatio: "16:9",
-          imageSize: "2K",
+          imageSize: normalizedImageSize,
           refImages: refImages.length > 0 ? refImages : undefined
         });
         
@@ -187,6 +191,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateS
           api_key: apiKey,
           prompt: prompt,
           aspect_ratio: "16:9",
+          image_size: normalizedImageSize,
           asset_urls: assetUrls && assetUrls.length > 0 
             ? assetUrls.filter((p: string) => p.startsWith("http")) 
             : undefined,
@@ -235,4 +240,3 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenerateS
     );
   }
 }
-

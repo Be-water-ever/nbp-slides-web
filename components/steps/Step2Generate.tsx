@@ -161,6 +161,7 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
             apiKey: appState.apiKey,
             prompt,
             assetUrls,
+            imageSize: appState.previewImageSize || "1K",
           }),
         });
 
@@ -215,7 +216,7 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
     if (newSlides.length > 0) {
       updateState({ generatedSlides: newSlides });
     }
-  }, [appState.apiKey, appState.outline, appState.visualGuideline, updateState]);
+  }, [appState.apiKey, appState.outline, appState.previewImageSize, appState.visualGuideline, updateState]);
 
   const cancelGeneration = useCallback(() => {
     abortRef.current = true;
@@ -252,6 +253,35 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
                   ? "生成完成但没有幻灯片，请检查配置"
                   : `准备生成 ${totalSlides} 页幻灯片`}
         </p>
+      </div>
+
+      {/* Preview resolution selector */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium mb-2">预览清晰度</label>
+        <div className="flex items-center gap-6 text-sm">
+          <label className={`flex items-center gap-2 ${isGenerating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+            <input
+              type="radio"
+              name="previewImageSize"
+              value="1K"
+              checked={(appState.previewImageSize || "1K") === "1K"}
+              onChange={() => updateState({ previewImageSize: "1K" })}
+              disabled={isGenerating}
+            />
+            1K（更快/更省）
+          </label>
+          <label className={`flex items-center gap-2 ${isGenerating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+            <input
+              type="radio"
+              name="previewImageSize"
+              value="2K"
+              checked={(appState.previewImageSize || "1K") === "2K"}
+              onChange={() => updateState({ previewImageSize: "2K" })}
+              disabled={isGenerating}
+            />
+            2K（更清晰/更贵）
+          </label>
+        </div>
       </div>
 
       {canShowRegenControls && (
@@ -381,7 +411,7 @@ I have attached ${slide.assetPaths.length} image(s) that MUST be embedded direct
               <div className="text-center">
                 <p className="text-lg font-semibold">开始生成</p>
                 <p className="text-sm text-white/60 mt-1">
-                  生成 {totalSlides} 页 1K 预览图
+                  生成 {totalSlides} 页 {(appState.previewImageSize || "1K")} 预览图
                 </p>
               </div>
             </button>

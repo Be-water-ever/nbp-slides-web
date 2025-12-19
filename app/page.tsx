@@ -49,6 +49,7 @@ export interface AppState {
   uploadedAssets: { name: string; path: string }[];
   generatedSlides: GeneratedSlide[];
   currentJobId: string | null;
+  previewImageSize: "1K" | "2K";
 }
 
 export type AppStateUpdate = Partial<AppState> | ((prev: AppState) => Partial<AppState>);
@@ -96,6 +97,7 @@ export default function Home() {
     uploadedAssets: [],
     generatedSlides: [],
     currentJobId: null,
+    previewImageSize: "1K",
   });
 
   const updateState = useCallback((updates: AppStateUpdate) => {

@@ -8,7 +8,9 @@ const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { apiKey, outline, visualGuideline, specificSlides } = body;
+    const { apiKey, outline, visualGuideline, specificSlides, imageSize } = body;
+    const normalizedImageSize: "1K" | "2K" | "4K" =
+      imageSize === "2K" || imageSize === "4K" ? imageSize : "1K";
 
     if (!apiKey || apiKey.length < 20) {
       return NextResponse.json(
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest) {
     updateJob(job.id, { status: "processing" });
 
     // Start generation in background
-    generateSlidesInBackground(job.id, slides, visualGuideline, apiKey);
+    generateSlidesInBackground(job.id, slides, visualGuideline, apiKey, normalizedImageSize);
 
     return NextResponse.json({
       jobId: job.id,
@@ -59,7 +61,8 @@ async function generateSlidesInBackground(
   jobId: string,
   slides: ParsedSlide[],
   visualGuideline: string,
-  apiKey: string
+  apiKey: string,
+  imageSize: "1K" | "2K" | "4K"
 ) {
   console.log(`[Job ${jobId}] Starting generation of ${slides.length} slides...`);
   
@@ -101,6 +104,7 @@ Make it look like a professional slide from a Keynote presentation.
           api_key: apiKey,
           prompt: prompt,
           aspect_ratio: "16:9",
+          image_size: imageSize,
           asset_urls: slide.assetPaths && slide.assetPaths.length > 0 
             ? slide.assetPaths.filter(p => p.startsWith("http")) 
             : undefined,
